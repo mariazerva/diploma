@@ -19,7 +19,7 @@
 `include "VX_types.vh"
 
 ///////////////////////////////////////////////////////////////////////////////
-
+`define SW_BITS         `CLOG2(`SCHEDULE_WIDTH)
 `define NW_BITS         `CLOG2(`NUM_WARPS)
 `define NC_WIDTH        `UP(`NC_BITS)
 

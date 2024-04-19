@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-interface VX_schedule_if ();
+interface VX_schedule_if #(parameter SCHEDULE_WIDTH = 1);
 
     typedef struct packed {
         logic [`UUID_WIDTH-1:0]     uuid;
@@ -22,9 +22,9 @@ interface VX_schedule_if ();
         logic [`XLEN-1:0]           PC;
     } data_t;
 
-    logic  valid;
-    data_t data;
-    logic  ready;
+    logic [SCHEDULE_WIDTH-1:0] valid; // Now an array to support SCHEDULE_WIDTH instructions
+    data_t data[SCHEDULE_WIDTH];      // Data is also an array
+    logic [SCHEDULE_WIDTH-1:0] ready;                     // Ready signal remains single-bit
 
     modport master (
         output valid,

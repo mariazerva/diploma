@@ -18,7 +18,8 @@
 `endif
 
 module VX_core import VX_gpu_pkg::*; #( 
-    parameter CORE_ID = 0
+    parameter CORE_ID = 0,
+    parameter SCHEDULE_WIDTH = 1 
 ) (        
     `SCOPE_IO_DECL
     
@@ -47,8 +48,9 @@ module VX_core import VX_gpu_pkg::*; #(
     // Status
     output wire             busy
 );
-    VX_schedule_if      schedule_if();
-    VX_fetch_if         fetch_if();
+
+    VX_schedule_if #(SCHEDULE_WIDTH) schedule_if();
+    VX_fetch_if #(SCHEDULE_WIDTH) fetch_if();
     VX_decode_if        decode_if();
     VX_sched_csr_if     sched_csr_if();
     VX_decode_sched_if  decode_sched_if();
@@ -107,7 +109,8 @@ module VX_core import VX_gpu_pkg::*; #(
     `SCOPE_IO_SWITCH (3)
 
     VX_schedule #(
-        .CORE_ID (CORE_ID)
+        .CORE_ID (CORE_ID),
+        .SCHEDULE_WIDTH (SCHEDULE_WIDTH)
     ) schedule (
         .clk            (clk),
         .reset          (schedule_reset),
@@ -133,7 +136,8 @@ module VX_core import VX_gpu_pkg::*; #(
     );
 
     VX_fetch #(
-        .CORE_ID (CORE_ID)
+        .CORE_ID (CORE_ID), 
+        .SCHEDULE_WIDTH (SCHEDULE_WIDTH) 
     ) fetch (
         `SCOPE_IO_BIND  (0)
         .clk            (clk),

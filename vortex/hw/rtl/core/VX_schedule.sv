@@ -14,7 +14,8 @@
 `include "VX_define.vh"
 
 module VX_schedule import VX_gpu_pkg::*; #(
-    parameter CORE_ID = 0
+    parameter CORE_ID = 0,
+    parameter SCHEDULE_WIDTH = 1
 ) (    
     input wire              clk,
     input wire              reset,
@@ -50,11 +51,12 @@ module VX_schedule import VX_gpu_pkg::*; #(
     reg [`NUM_WARPS-1:0][`NUM_THREADS-1:0] thread_masks, thread_masks_n;
     reg [`NUM_WARPS-1:0][`XLEN-1:0] warp_pcs, warp_pcs_n;
 
-    wire [`NW_WIDTH-1:0]    schedule_wid;
-    wire [`NUM_THREADS-1:0] schedule_tmask;
-    wire [`XLEN-1:0]        schedule_pc;
-    wire                    schedule_valid;
-    wire                    schedule_ready;
+    wire [`NW_WIDTH-1:0]    schedule_wid;  
+    wire [`NUM_THREADS-1:0] schedule_tmask[SCHEDULE_WIDTH];  // Thread masks for each instruction
+    wire [`XLEN-1:0]        schedule_pc[SCHEDULE_WIDTH];     // PCs for each instruction
+    wire                    schedule_valid[SCHEDULE_WIDTH];  // Valid flags for each instruction slot
+    wire                    schedule_ready[SCHEDULE_WIDTH];  // Ready flags for each instruction slot
+
 
     // split/join
     wire                    join_valid;
@@ -67,9 +69,20 @@ module VX_schedule import VX_gpu_pkg::*; #(
     reg [`PERF_CTR_BITS-1:0] cycles;
 
     reg [`NUM_WARPS-1:0][`UUID_WIDTH-1:0] issued_instrs;
+    reg [`SW_BITS-1:0] instrs;
 
-    wire schedule_fire = schedule_valid && schedule_ready;
-    wire schedule_if_fire = schedule_if.valid && schedule_if.ready;
+    wire [SCHEDULE_WIDTH-1:0] schedule_fire;
+    wire [SCHEDULE_WIDTH-1:0] schedule_if_fire;
+    generate
+        for (genvar i = 0; i < SCHEDULE_WIDTH; i++) begin : schedule_fire_gen
+            assign schedule_fire[i] = schedule_valid[i] && schedule_ready[i];
+        end
+    endgenerate
+    generate
+        for (genvar i = 0; i < SCHEDULE_WIDTH; i++) begin : schedule_if_fire_gen
+            assign schedule_if_fire[i] = schedule_if.valid[i] && schedule_if.ready[i];
+        end
+    endgenerate
 
     // branch
     wire [`NUM_ALU_BLOCKS-1:0]                  branch_valid;    
@@ -189,14 +202,26 @@ module VX_schedule import VX_gpu_pkg::*; #(
         end
 
         // stall the warp until decode stage
-        if (schedule_fire) begin
+        if (schedule_fire[0]) begin
             stalled_warps_n[schedule_wid] = 1;
         end
 
-        // advance PC
-        if (schedule_if_fire) begin
-            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + 4;
+        // Iterate through schedule_fire to calculate the instrs that can be issued
+        instrs = 0;
+        for (integer i = 0; i < SCHEDULE_WIDTH; i++) begin
+            if (schedule_fire[i]) begin
+                // For each instruction ready to fire, add 1 to the instrs that can be issued
+                instrs += 1;
+            end else begin
+                // Stop counting when an instruction is not ready to fire
+                break;
+            end
         end
+        // Advance PC for the warp if there is at least one instruction ready to fire
+        if (instrs > 0) begin
+            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + instrs<<2;
+        end
+
     end
 
     `UNUSED_VAR (base_dcrs)
@@ -241,8 +266,8 @@ module VX_schedule import VX_gpu_pkg::*; #(
             end
         `endif
 
-            if (schedule_if_fire) begin
-                issued_instrs[schedule_if.data.wid] <= issued_instrs[schedule_if.data.wid] + `UUID_WIDTH'(1);
+            if (schedule_if_fire[0]) begin
+                issued_instrs[schedule_if.data.wid] <= issued_instrs[schedule_if.data.wid] + `UUID_WIDTH'(instrs);
             end
 
             if (busy) begin

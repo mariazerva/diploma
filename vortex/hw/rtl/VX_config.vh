@@ -236,6 +236,11 @@
 
 // Pipeline Configuration /////////////////////////////////////////////////////
 
+// Schedule width <---------- Edited
+`ifndef SCHEDULE_WIDTH
+`define SCHEDULE_WIDTH 1 
+`endif
+
 // Issue width
 `ifndef ISSUE_WIDTH
 `define ISSUE_WIDTH     `MIN(`NUM_WARPS, 4)

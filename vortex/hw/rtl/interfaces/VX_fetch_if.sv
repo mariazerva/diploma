@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-interface VX_fetch_if ();
+interface VX_fetch_if #(parameter SCHEDULE_WIDTH = 1) ();
 
     typedef struct packed {
         logic [`UUID_WIDTH-1:0]     uuid;
@@ -23,11 +23,11 @@ interface VX_fetch_if ();
         logic [31:0]                instr;
     } data_t;
 
-    logic  valid;
-    data_t data;
-    logic  ready;
+    logic [SCHEDULE_WIDTH-1:0] valid;
+    data_t data[SCHEDULE_WIDTH];
+    logic [SCHEDULE_WIDTH-1:0] ready;
 `ifndef L1_ENABLE    
-    logic [`ISSUE_WIDTH-1:0] ibuf_pop;
+    logic [`ISSUE_WIDTH-1:0][SCHEDULE_WIDTH-1:0] ibuf_pop; // to support popping multiple instructions
 `endif
 
     modport master (
