@@ -48,7 +48,11 @@ PERF_CLASS=0
 REBUILD=2
 TEMPBUILD=0
 LOGFILE=run.log
+# default configurations
+ISSUE_WIDTH=-1
+SCHEDULE_WIDTH=1
 
+# parse command line arguments: issue_width, schedule_width
 for i in "$@"
 do
 case $i in
@@ -74,6 +78,14 @@ case $i in
         ;;
     --threads=*)
         THREADS=${i#*=}
+        shift
+        ;;
+    --issue_width=*)
+        ISSUE_WIDTH=${i#*=}
+        shift
+        ;;
+    --schedule_width=*)
+        SCHEDULE_WIDTH=${i#*=}
         shift
         ;;
     --l2cache)
@@ -123,6 +135,11 @@ case $i in
 esac
 done
 
+# default issue width
+if [ $ISSUE_WIDTH -eq -1 ]; then
+    ISSUE_WIDTH=$(($WARPS<4?$WARPS:4))
+fi
+
 if [ $REBUILD -eq 3 ];
 then
     REBUILD=1
@@ -159,7 +176,8 @@ else
     exit -1
 fi
 
-CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS $L2 $L3 $PERF_FLAG $CONFIGS"
+# set configurations
+CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS -DISSUE_WIDTH=$ISSUE_WIDTH -DSCHEDULE_WIDTH=$SCHEDULE_WIDTH $L2 $L3 $PERF_FLAG $CONFIGS"
 
 echo "CONFIGS=$CONFIGS"
 
