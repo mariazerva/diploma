@@ -14,7 +14,8 @@
 `include "VX_define.vh"
 
 module VX_schedule import VX_gpu_pkg::*; #(
-    parameter CORE_ID = 0
+    parameter CORE_ID = 0,
+    parameter SCHEDULE_WIDTH = 1
 ) (    
     input wire              clk,
     input wire              reset,
@@ -195,7 +196,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
 
         // advance PC
         if (schedule_if_fire) begin
-            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + 4;
+            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + SCHEDULE_WIDTH<<2;
         end
     end
 

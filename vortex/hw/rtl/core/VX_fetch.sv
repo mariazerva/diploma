@@ -14,7 +14,8 @@
 `include "VX_define.vh"
 
 module VX_fetch import VX_gpu_pkg::*; #(
-    parameter CORE_ID = 0
+    parameter CORE_ID = 0,
+    parameter SCHEDULE_WIDTH = 1
 ) (
     `SCOPE_IO_DECL
 
