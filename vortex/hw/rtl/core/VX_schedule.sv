@@ -14,8 +14,7 @@
 `include "VX_define.vh"
 
 module VX_schedule import VX_gpu_pkg::*; #(
-    parameter CORE_ID = 0,
-    parameter SCHEDULE_WIDTH = 1
+    parameter CORE_ID = 0
 ) (    
     input wire              clk,
     input wire              reset,
@@ -44,7 +43,6 @@ module VX_schedule import VX_gpu_pkg::*; #(
     output wire             busy
 );
     `UNUSED_PARAM (CORE_ID)
-    `UNUSED_PARAM (SCHEDULE_WIDTH)
 
     reg [`NUM_WARPS-1:0] active_warps, active_warps_n; // updated when a warp is activated or disabled
     reg [`NUM_WARPS-1:0] stalled_warps, stalled_warps_n;  // set when branch/gpgpu instructions are issued
