@@ -16,7 +16,7 @@
 module VX_fetch import VX_gpu_pkg::*; #(
     parameter CORE_ID = 0,
     /* verilator lint_off UNUSED */
-    parameter SCHEDULE_WIDTH = 1;
+    parameter SCHEDULE_WIDTH = 1
     /* verilator lint_on UNUSED */
 ) (
     `SCOPE_IO_DECL
