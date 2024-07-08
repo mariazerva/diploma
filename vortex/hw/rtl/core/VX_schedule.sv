@@ -44,6 +44,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
     output wire             busy
 );
     `UNUSED_PARAM (CORE_ID)
+    `UNUSED_PARAM (SCHEDULE_WIDTH)
 
     reg [`NUM_WARPS-1:0] active_warps, active_warps_n; // updated when a warp is activated or disabled
     reg [`NUM_WARPS-1:0] stalled_warps, stalled_warps_n;  // set when branch/gpgpu instructions are issued
@@ -196,7 +197,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
 
         // advance PC
         if (schedule_if_fire) begin
-            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + (SCHEDULE_WIDTH << 2);
+            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + (1 << 2);
         end
     end
 

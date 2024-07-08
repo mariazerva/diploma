@@ -14,7 +14,8 @@
 `include "VX_define.vh"
 
 module VX_fetch import VX_gpu_pkg::*; #(
-    parameter CORE_ID = 0
+    parameter CORE_ID = 0,
+    parameter SCHEDULE_WIDTH = 1
 ) (
     `SCOPE_IO_DECL
 
@@ -31,6 +32,7 @@ module VX_fetch import VX_gpu_pkg::*; #(
     VX_fetch_if.master      fetch_if
 );
     `UNUSED_PARAM (CORE_ID)
+    `UNUSED_PARAM (SCHEDULE_WIDTH)
     `UNUSED_VAR (reset)
 
     wire icache_req_valid;
