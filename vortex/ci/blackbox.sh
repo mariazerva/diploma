@@ -16,7 +16,7 @@
 show_usage()
 {
     echo "Vortex BlackBox Test Driver v1.0"
-    echo "Usage: $0 [[--clusters=#n] [--cores=#n] [--warps=#n] [--threads=#n] [--issue_width=#n] [--schedule_width=#n] [--l2cache] [--l3cache] [--driver=#name] [--app=#app] [--args=#args] [--debug=#level] [--scope] [--perf=#class] [--rebuild=#n] [--log=logfile] [--help]]"
+    echo "Usage: $0 [[--clusters=#n] [--cores=#n] [--warps=#n] [--threads=#n] [--issue_width=#n] [--l2cache] [--l3cache] [--driver=#name] [--app=#app] [--args=#args] [--debug=#level] [--scope] [--perf=#class] [--rebuild=#n] [--log=logfile] [--help]]"
 }
 
 show_help()
@@ -50,9 +50,8 @@ TEMPBUILD=0
 LOGFILE=run.log
 # default configurations
 ISSUE_WIDTH=-1
-SCHEDULE_WIDTH=1
 
-# parse command line arguments: issue_width, schedule_width
+# parse command line arguments: issue_width
 for i in "$@"
 do
 case $i in
@@ -82,10 +81,6 @@ case $i in
         ;;
     --issue_width=*)
         ISSUE_WIDTH=${i#*=}
-        shift
-        ;;
-    --schedule_width=*)
-        SCHEDULE_WIDTH=${i#*=}
         shift
         ;;
     --l2cache)
@@ -177,7 +172,7 @@ else
 fi
 
 # set configurations
-CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS -DISSUE_WIDTH=$ISSUE_WIDTH -DSCHEDULE_WIDTH=$SCHEDULE_WIDTH $L2 $L3 $PERF_FLAG $CONFIGS"
+CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS -DISSUE_WIDTH=$ISSUE_WIDTH $L2 $L3 $PERF_FLAG $CONFIGS"
 
 echo "CONFIGS=$CONFIGS"
 

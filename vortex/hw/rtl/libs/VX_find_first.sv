@@ -14,6 +14,7 @@
 `include "VX_platform.vh"
 
 `TRACING_OFF
+//This module implements a priority encoder using a binary tree structure. It scans through the valid signals to find the first valid warp and outputs the corresponding data.
 module VX_find_first #(
     parameter N       = 1,
     parameter DATAW   = 1,

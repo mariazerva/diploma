@@ -14,8 +14,7 @@
 `include "VX_define.vh"
 
 module VX_schedule import VX_gpu_pkg::*; #(
-    parameter CORE_ID = 0,
-    parameter SCHEDULE_WIDTH = 1
+    parameter CORE_ID = 0
 ) (    
     input wire              clk,
     input wire              reset,
@@ -44,7 +43,6 @@ module VX_schedule import VX_gpu_pkg::*; #(
     output wire             busy
 );
     `UNUSED_PARAM (CORE_ID)
-    `UNUSED_PARAM (SCHEDULE_WIDTH)
 
     reg [`NUM_WARPS-1:0] active_warps, active_warps_n; // updated when a warp is activated or disabled
     reg [`NUM_WARPS-1:0] stalled_warps, stalled_warps_n;  // set when branch/gpgpu instructions are issued
@@ -52,7 +50,10 @@ module VX_schedule import VX_gpu_pkg::*; #(
     reg [`NUM_WARPS-1:0][`NUM_THREADS-1:0] thread_masks, thread_masks_n;
     reg [`NUM_WARPS-1:0][`XLEN-1:0] warp_pcs, warp_pcs_n;
 
-    wire [`NW_WIDTH-1:0]    schedule_wid;
+    wire [`NW_WIDTH-1:0]   schedule_wid;
+    wire [`NW_WIDTH-1:0]   schedule_wid_from_lzc;
+    reg [`NW_WIDTH-1:0]    previous_schedule_wid;
+
     wire [`NUM_THREADS-1:0] schedule_tmask;
     wire [`XLEN-1:0]        schedule_pc;
     wire                    schedule_valid;
@@ -197,7 +198,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
 
         // advance PC
         if (schedule_if_fire) begin
-            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + (SCHEDULE_WIDTH << 2);
+            warp_pcs_n[schedule_if.data.wid] = schedule_if.data.PC + 4;
         end
     end
 
@@ -292,9 +293,19 @@ module VX_schedule import VX_gpu_pkg::*; #(
         .REVERSE (1)
     ) wid_select (
         .data_in   (ready_warps),
-        .data_out  (schedule_wid),
+        .data_out  (schedule_wid_from_lzc),
         .valid_out (schedule_valid)
     );
+
+    always @(posedge clk) begin
+        if (reset) begin
+            previous_schedule_wid <= 0;
+        end else begin
+            previous_schedule_wid <= schedule_wid;
+        end
+    end
+
+    assign schedule_wid = ready_warps[previous_schedule_wid] ? previous_schedule_wid : schedule_wid_from_lzc;
 
     wire [`NUM_WARPS-1:0][(`NUM_THREADS + `XLEN)-1:0] schedule_data;
     for (genvar i = 0; i < `NUM_WARPS; ++i) begin
