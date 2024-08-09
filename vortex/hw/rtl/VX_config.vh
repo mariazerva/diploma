@@ -241,6 +241,11 @@
 `define ISSUE_WIDTH     `MIN(`NUM_WARPS, 4)
 `endif
 
+// Number of Collector units
+`ifndef NUM_CUS
+`define NUM_CUS `MIN(`NUM_WARPS * `ISSUE_WIDTH, 8)
+`endif
+
 // Number of ALU units
 `ifndef NUM_ALU_LANES
 `define NUM_ALU_LANES   `NUM_THREADS

@@ -16,7 +16,7 @@
 show_usage()
 {
     echo "Vortex BlackBox Test Driver v1.0"
-    echo "Usage: $0 [[--clusters=#n] [--cores=#n] [--warps=#n] [--threads=#n] [--issue_width=#n] [--l2cache] [--l3cache] [--driver=#name] [--app=#app] [--args=#args] [--debug=#level] [--scope] [--perf=#class] [--rebuild=#n] [--log=logfile] [--help]]"
+    echo "Usage: $0 [[--clusters=#n] [--cores=#n] [--warps=#n] [--threads=#n] [--issue_width=#n] [--num_cus=#n] [--l2cache] [--l3cache] [--driver=#name] [--app=#app] [--args=#args] [--debug=#level] [--scope] [--perf=#class] [--rebuild=#n] [--log=logfile] [--help]]"
 }
 
 show_help()
@@ -50,8 +50,9 @@ TEMPBUILD=0
 LOGFILE=run.log
 # default configurations
 ISSUE_WIDTH=-1
+NUM_CUS=-1
 
-# parse command line arguments: issue_width
+# parse command line arguments: issue_width, num_cus
 for i in "$@"
 do
 case $i in
@@ -81,6 +82,10 @@ case $i in
         ;;
     --issue_width=*)
         ISSUE_WIDTH=${i#*=}
+        shift
+        ;;
+    --num_cus=*)
+        NUM_CUS=${i#*=}
         shift
         ;;
     --l2cache)
@@ -135,6 +140,12 @@ if [ $ISSUE_WIDTH -eq -1 ]; then
     ISSUE_WIDTH=$(($WARPS<4?$WARPS:4))
 fi
 
+# default number of collector units = min(8, num_warps*issue_width)
+if [ $NUM_CUS -eq -1 ]; then
+    NUM_CUS=$(($WARPS*$ISSUE_WIDTH))
+    NUM_CUS=$(($NUM_CUS<8?$NUM_CUS:8))
+fi
+
 if [ $REBUILD -eq 3 ];
 then
     REBUILD=1
@@ -172,7 +183,7 @@ else
 fi
 
 # set configurations
-CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS -DISSUE_WIDTH=$ISSUE_WIDTH $L2 $L3 $PERF_FLAG $CONFIGS"
+CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS -DISSUE_WIDTH=$ISSUE_WIDTH -DNUM_CUS=$NUM_CUS $L2 $L3 $PERF_FLAG $CONFIGS"
 
 echo "CONFIGS=$CONFIGS"
 

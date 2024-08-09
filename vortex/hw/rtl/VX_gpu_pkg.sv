@@ -198,6 +198,10 @@ package VX_gpu_pkg;
     localparam ISSUE_RATIO = `NUM_WARPS / `ISSUE_WIDTH;
     localparam ISSUE_WIS   = `CLOG2(ISSUE_RATIO);
     localparam ISSUE_WIS_W = `UP(ISSUE_WIS);
+    /* verilator lint_off UNUSED */
+    localparam CU_IDW = `CLOG2(`NUM_CUS);
+    localparam CU_IDW_W = `UP(CU_IDW);
+    /* verilator lint_on UNUSED */
     
 `IGNORE_UNUSED_BEGIN
     function logic [`NW_WIDTH-1:0] wis_to_wid(
