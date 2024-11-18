@@ -93,7 +93,9 @@ module VX_operands import VX_gpu_pkg::*; #(
         wire allocate_cu_valid, dispatch_cu_valid, read_cu_valid_out, read_cu_valid;
         reg [`CU_WIS_W-1:0] cu_to_read_rf, cu_to_read_rf_n;
         reg [`CU_WIS_W-1:0] cu_to_dispatch, cu_to_deallocate;
-        wire deallocate;
+        reg [`CU_WIS_W-1:0] cu_to_writeback;
+        wire writeback;
+        wire deallocate, writeback;
         wire [`CU_WIS_W-1:0] cu_to_dispatch_n;
 
         wire stg_valid_in;
@@ -159,6 +161,21 @@ module VX_operands import VX_gpu_pkg::*; #(
                         reading_cus[j] = 0;                        
                     end
 
+                    if (writeback_if[i].valid) begin
+                        if ((collector_units[j].rs1_source == cu_to_writeback) && collector_units[j].rs1_ready==0) begin
+                            collector_units[j].rs1_data = writeback_if[i].data.data;
+                            collector_units[j].rs1_ready = 1;
+                        end 
+                        if ((collector_units[j].rs2_source == cu_to_writeback) && collector_units[j].rs2_ready==0) begin
+                            collector_units[j].rs2_data = writeback_if[i].data.data;
+                            collector_units[j].rs2_ready = 1;
+                        end 
+                        if ((collector_units[j].rs3_source == cu_to_writeback) && collector_units[j].rs3_ready==0) begin
+                            collector_units[j].rs3_data = writeback_if[i].data.data;
+                            collector_units[j].rs3_ready = 1;
+                        end
+                    end
+
                     // a cu is ready to use operands_if to dispatch
                     if (collector_units[j].rs1_ready && collector_units[j].rs2_ready && collector_units[j].rs3_ready) begin
                         ready_cus[j] = 1;
@@ -176,8 +193,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                 operands_if[i].data.rs1_data = collector_units[cu_to_dispatch].rs1_data;
                 operands_if[i].data.rs2_data = collector_units[cu_to_dispatch].rs2_data;
                 operands_if[i].data.rs3_data = collector_units[cu_to_dispatch].rs3_data;
-                cu_to_deallocate = cu_to_dispatch;
-                deallocate = 1;
             end 
 
             // new cu to read rf
@@ -218,6 +233,28 @@ module VX_operands import VX_gpu_pkg::*; #(
                 collector_units[cu_to_read_rf].rs3_data = gpr_rd_data;
                 collector_units[cu_to_read_rf].rs3_ready = 1;
             end
+
+
+            if (writeback_if[i].valid) begin
+                for (integer j = 0; j < `NUM_CUS; ++j) begin
+                    if (collector_units[j].data.uuid == writeback_if[i].data.uuid) begin
+                        cu_to_writeback = j;
+                        cu_to_deallocate = j;
+                        deallocate = 1;
+                        if (reg_alias_table[collector_units[cu_to_writeback].data.wis][collector_units[cu_to_writeback].data.rd].cu_id == cu_to_writeback) begin
+                            reg_alias_table[collector_units[cu_to_writeback].data.wis][collector_units[cu_to_writeback].data.rd].from_rf <= 1;
+                            writeback <= 1;
+                        end else begin
+                            writeback <= 0;
+                        end
+                    end
+                end
+            end else begin
+                cu_to_writeback = 0;
+                writeback <= 0;
+                deallocate = 0;
+            end
+
 
             if (CACHE_ENABLE != 0 && writeback_if[i].valid) begin
                 if ((cache_reg[writeback_if[i].data.wis] == writeback_if[i].data.rd) 
@@ -287,6 +324,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                 stg_ready <= 1'b0;
                 check_rat <= 1'b0;
                 previous_pc <= 0;
+                deallocate <= 0;
             end else begin
                 cache_eop   <= cache_eop_n;
                 check_rat <= check_rat_n;
@@ -413,9 +451,9 @@ module VX_operands import VX_gpu_pkg::*; #(
                 .read  (read_cu_valid),
                 `UNUSED_PIN (wren),
             `ifdef GPR_RESET
-                .write (wr_enabled && writeback_if[i].valid && writeback_if[i].data.tmask[j]),
+                .write (wr_enabled && writeback && writeback_if[i].data.tmask[j]),
             `else
-                .write (writeback_if[i].valid && writeback_if[i].data.tmask[j]),
+                .write (writeback && writeback_if[i].data.tmask[j]),
             `endif              
                 .waddr (gpr_wr_addr),
                 .wdata (writeback_if[i].data.data[j]),
