@@ -201,6 +201,9 @@ package VX_gpu_pkg;
     /* verilator lint_off UNUSED */
     localparam CU_IDW = `CLOG2(`NUM_CUS);
     localparam CU_IDW_W = `UP(CU_IDW);
+    localparam CU_RATIO = `NUM_CUS / `ISSUE_WIDTH;
+    localparam CU_WIS = `CLOG2(CU_RATIO);
+    localparam CU_WIS_W = `UP(CU_WIS);
     /* verilator lint_on UNUSED */
     
 `IGNORE_UNUSED_BEGIN

@@ -193,23 +193,6 @@ module VX_scoreboard import VX_gpu_pkg::*; #(
         `endif
         end
 
-    `ifdef DBG_TRACE_INUSE_REGS
-        always @(posedge clk) begin
-            if (writeback_fire) begin
-                `TRACE(3, ("%d: *** core%0d-inuse_regs: wid=%0d, writeback_PC=0x%0h, i=%0d, inuse_regs[%0d][%0d]=0 (#%0d)\n",
-                    $time, CORE_ID, wis_to_wid(writeback_if[i].data.wis, i), writeback_if[i].data.PC, i, writeback_if[i].data.wis, writeback_if[i].data.rd, writeback_if[i].data.uuid));
-            end
-            if (ibuffer_if[i].valid && ibuffer_if[i].ready && ibuffer_if[i].data.wb) begin
-                `TRACE(3, ("%d: *** core%0d-inuse_regs: wid=%0d, issued_PC=0x%0h, i=%0d, inuse_regs[%0d][%0d]=1 (#%0d)\n",
-                    $time, CORE_ID, wis_to_wid(ibuffer_if[i].data.wis, i), ibuffer_if[i].data.PC, i, ibuffer_if[i].data.wis, ibuffer_if[i].data.rd, ibuffer_if[i].data.uuid));
-            end
-            if (stg_valid_in && stg_ready_in) begin
-                `TRACE(3, ("%d: *** core%0d-inuse_regs: wid=%0d, stg_PC=0x%0h, i=%0d, rs1=%0d, rs2=%0d, rs3=%0d, rd=%0d (#%0d)\n",
-                    $time, CORE_ID, wis_to_wid(ibuffer_if[i].data.wis, i), ibuffer_if[i].data.PC, i, ibuffer_if[i].data.rs1, ibuffer_if[i].data.rs2, ibuffer_if[i].data.rs3, ibuffer_if[i].data.rd, ibuffer_if[i].data.uuid));
-            end
-        end
-    `endif
-
     `ifdef SIMULATION
         reg [31:0] timeout_ctr;       
 

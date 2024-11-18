@@ -50,9 +50,9 @@ module VX_schedule import VX_gpu_pkg::*; #(
     reg [`NUM_WARPS-1:0][`NUM_THREADS-1:0] thread_masks, thread_masks_n;
     reg [`NUM_WARPS-1:0][`XLEN-1:0] warp_pcs, warp_pcs_n;
 
-    wire [`NW_WIDTH-1:0]   schedule_wid;
-    wire [`NW_WIDTH-1:0]   schedule_wid_from_lzc;
-    reg [`NW_WIDTH-1:0]    previous_schedule_wid;
+    wire [`NW_WIDTH-1:0]    schedule_wid;
+    wire [`NW_WIDTH-1:0]    schedule_wid_from_lzc;
+    reg [`NW_WIDTH-1:0]     previous_schedule_wid;
 
     wire [`NUM_THREADS-1:0] schedule_tmask;
     wire [`XLEN-1:0]        schedule_pc;

@@ -11,6 +11,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Modifications:
+// Completely removed vx_scoreboard module and vx_scoreboard_if interface
+
 `include "VX_define.vh"
 `include "VX_trace.vh"
 
@@ -33,11 +36,11 @@ module VX_issue #(
     VX_dispatch_if.master   lsu_dispatch_if [`ISSUE_WIDTH],
 `ifdef EXT_F_ENABLE
     VX_dispatch_if.master   fpu_dispatch_if [`ISSUE_WIDTH],
-`endif
+`endifi
     VX_dispatch_if.master   sfu_dispatch_if [`ISSUE_WIDTH]
 );
     VX_ibuffer_if  ibuffer_if [`ISSUE_WIDTH]();
-    VX_ibuffer_if  scoreboard_if [`ISSUE_WIDTH]();
+    // VX_ibuffer_if  scoreboard_if [`ISSUE_WIDTH]();
     VX_operands_if operands_if [`ISSUE_WIDTH]();
 
     `RESET_RELAY (ibuf_reset, reset);
@@ -54,20 +57,20 @@ module VX_issue #(
         .ibuffer_if     (ibuffer_if)
     );
 
-    VX_scoreboard #(
-        .CORE_ID (CORE_ID)
-    ) scoreboard (
-        .clk            (clk),
-        .reset          (scoreboard_reset),
-    `ifdef PERF_ENABLE
-        .perf_scb_stalls(perf_issue_if.scb_stalls),
-        .perf_units_uses(perf_issue_if.units_uses),
-        .perf_sfu_uses  (perf_issue_if.sfu_uses),
-    `endif
-        .writeback_if   (writeback_if),
-        .ibuffer_if     (ibuffer_if),
-        .scoreboard_if  (scoreboard_if)
-    );
+//    VX_scoreboard #(
+//        .CORE_ID (CORE_ID)
+//    ) scoreboard (
+//        .clk            (clk),
+//        .reset          (scoreboard_reset),
+//    `ifdef PERF_ENABLE
+//        .perf_scb_stalls(perf_issue_if.scb_stalls),
+//        .perf_units_uses(perf_issue_if.units_uses),
+//        .perf_sfu_uses  (perf_issue_if.sfu_uses),
+//    `endif
+//        .writeback_if   (writeback_if),
+//        .ibuffer_if     (ibuffer_if),
+//        .scoreboard_if  (scoreboard_if)
+//    );
 
     VX_operands #(
         .CORE_ID (CORE_ID)
@@ -75,7 +78,7 @@ module VX_issue #(
         .clk            (clk), 
         .reset          (operands_reset), 
         .writeback_if   (writeback_if),
-        .scoreboard_if  (scoreboard_if),
+        .ibuffer_if     (ibuffer_if),
         .operands_if    (operands_if)
     );
 

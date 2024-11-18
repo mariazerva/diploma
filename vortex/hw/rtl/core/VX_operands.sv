@@ -21,20 +21,59 @@ module VX_operands import VX_gpu_pkg::*; #(
     input wire              reset,
 
     VX_writeback_if.slave   writeback_if [`ISSUE_WIDTH],
-    VX_ibuffer_if.slave     scoreboard_if [`ISSUE_WIDTH],
+    VX_ibuffer_if.slave     ibuffer_if [`ISSUE_WIDTH],
     VX_operands_if.master   operands_if [`ISSUE_WIDTH]
 );
+
+    typedef struct packed {
+        logic [`UUID_WIDTH-1:0]     uuid;
+        logic [ISSUE_WIS_W-1:0]     wis;
+        logic [`NUM_THREADS-1:0]    tmask;
+        logic [`EX_BITS-1:0]        ex_type;    
+        logic [`INST_OP_BITS-1:0]   op_type;
+        logic [`INST_MOD_BITS-1:0]  op_mod;    
+        logic                       wb;
+        logic                       use_PC;
+        logic                       use_imm;
+        logic [`XLEN-1:0]           PC;
+        logic [`XLEN-1:0]           imm;
+        logic [`NR_BITS-1:0]        rd;
+        logic [`NR_BITS-1:0]        rs1;
+        logic [`NR_BITS-1:0]        rs2;
+        logic [`NR_BITS-1:0]        rs3;
+    } data_t;
+
+    typedef struct packed {
+        logic allocated;
+        data_t data;
+        logic rs1_ready;
+        logic rs2_ready;
+        logic rs3_ready;
+        logic [`NUM_THREADS-1:0][`XLEN-1:0] rs1_data;
+        logic [`NUM_THREADS-1:0][`XLEN-1:0] rs2_data;
+        logic [`NUM_THREADS-1:0][`XLEN-1:0] rs3_data;
+        logic [`CU_WIS_W-1:0] rs1_source;
+        logic [`CU_WIS_W-1:0] rs2_source;
+        logic [`CU_WIS_W-1:0] rs3_source;
+        logic rs1_from_rf;
+        logic rs2_from_rf;
+        logic rs3_from_rf;
+    } collector_unit_t;
+
+    typedef struct packed {
+        logic [`CU_WIS_W-1:0] cu_id;
+        logic from_rf;
+    } rat_data_t;
+
     `UNUSED_PARAM (CORE_ID)
     localparam DATAW = `UUID_WIDTH + ISSUE_WIS_W + `NUM_THREADS + `XLEN + 1 + `EX_BITS + `INST_OP_BITS + `INST_MOD_BITS + 1 + 1 + `XLEN + `NR_BITS;
     localparam RAM_ADDRW = `LOG2UP(`NUM_REGS * ISSUE_RATIO);
 
-    localparam STATE_IDLE   = 2'd0;
-    localparam STATE_FETCH1 = 2'd1;
-    localparam STATE_FETCH2 = 2'd2;
-    localparam STATE_FETCH3 = 2'd3;
-    localparam STATE_BITS   = 2;
-
     for (genvar i = 0; i < `ISSUE_WIDTH; ++i) begin
+        
+        collector_unit_t [`CU_RATIO-1:0] collector_units;
+        rat_data_t [`UP(`ISSUE_RATIO)-1:0][`NUM_REGS-1:0] reg_alias_table;
+
         wire [`NUM_THREADS-1:0][`XLEN-1:0] gpr_rd_data;
         reg [`NR_BITS-1:0] gpr_rd_rid, gpr_rd_rid_n;
         reg [ISSUE_WIS_W-1:0] gpr_rd_wis, gpr_rd_wis_n;
@@ -46,114 +85,140 @@ module VX_operands import VX_gpu_pkg::*; #(
         reg [`NUM_THREADS-1:0] cache_tmask [ISSUE_RATIO-1:0];
         reg [`NUM_THREADS-1:0] cache_tmask_n [ISSUE_RATIO-1:0];
         reg [ISSUE_RATIO-1:0] cache_eop, cache_eop_n;
+        wire [`CU_WIS_W-1:0] cu_to_allocate;
+        wire [`CU_WIS_W-1:0] cu_to_read_rf_out;
+        wire [`CU_RATIO-1:0] empty_cus;
+        wire [`CU_RATIO-1:0] reading_cus;
+        wire [`CU_RATIO-1:0] ready_cus;
+        wire allocate_cu_valid, dispatch_cu_valid, read_cu_valid_out, read_cu_valid;
+        reg [`CU_WIS_W-1:0] cu_to_read_rf, cu_to_read_rf_n;
+        reg [`CU_WIS_W-1:0] cu_to_dispatch, cu_to_deallocate;
+        wire deallocate;
+        wire [`CU_WIS_W-1:0] cu_to_dispatch_n;
 
-        reg [`NUM_THREADS-1:0][`XLEN-1:0] rs1_data, rs1_data_n;
-        reg [`NUM_THREADS-1:0][`XLEN-1:0] rs2_data, rs2_data_n;
-        reg [`NUM_THREADS-1:0][`XLEN-1:0] rs3_data, rs3_data_n;
-
-        reg [STATE_BITS-1:0] state, state_n;
-        reg [`NR_BITS-1:0] rs2, rs2_n;
-        reg [`NR_BITS-1:0] rs3, rs3_n;
-        reg rs2_ready, rs2_ready_n;
-        reg rs3_ready, rs3_ready_n;
-        reg data_ready, data_ready_n;
-
-        wire stg_valid_in, stg_ready_in;
-        
-        wire is_rs1_zero = (scoreboard_if[i].data.rs1 == 0);
-        wire is_rs2_zero = (scoreboard_if[i].data.rs2 == 0);
-        wire is_rs3_zero = (scoreboard_if[i].data.rs3 == 0);
+        wire stg_valid_in;
+        wire stg_ready_in;
+        reg ibuffer_ready, ibuffer_ready_n;
+        reg stg_ready, stg_ready_n;
+        reg [`CU_WIS_W-1:0] cu_to_check_rat, cu_to_check_rat_n;
+        reg check_rat, check_rat_n;
+        reg rf_ready, rf_ready_n;
+        reg [`XLEN-1:0] previous_pc;
+        reg [1:0] state, state_n;
 
         always @(*) begin
-            state_n      = state;
-            rs2_n        = rs2;
-            rs3_n        = rs3;
-            rs2_ready_n  = rs2_ready;
-            rs3_ready_n  = rs3_ready;
-            rs1_data_n   = rs1_data;
-            rs2_data_n   = rs2_data;
-            rs3_data_n   = rs3_data;
             cache_data_n = cache_data;
             cache_reg_n  = cache_reg;
             cache_tmask_n= cache_tmask;
             cache_eop_n  = cache_eop;
             gpr_rd_rid_n = gpr_rd_rid;
             gpr_rd_wis_n = gpr_rd_wis;
-            data_ready_n = data_ready;
+            stg_ready_n = stg_ready_in;
 
-            case (state)
-            STATE_IDLE: begin
-                if (operands_if[i].valid && operands_if[i].ready) begin
-                    data_ready_n = 0;
-                end
-                if (scoreboard_if[i].valid && data_ready_n == 0) begin
-                    data_ready_n = 1;
-                    if (is_rs3_zero || (CACHE_ENABLE != 0 && 
-                                        scoreboard_if[i].data.rs3 == cache_reg[scoreboard_if[i].data.wis] && 
-                                        (scoreboard_if[i].data.tmask & cache_tmask[scoreboard_if[i].data.wis]) == scoreboard_if[i].data.tmask)) begin
-                        rs3_data_n   = (is_rs3_zero || CACHE_ENABLE == 0) ? '0 : cache_data[scoreboard_if[i].data.wis];
-                        rs3_ready_n  = 1;
-                    end else begin
-                        rs3_ready_n  = 0;
-                        gpr_rd_rid_n = scoreboard_if[i].data.rs3;
-                        data_ready_n = 0;
-                        state_n      = STATE_FETCH3;
-                    end
-                    if (is_rs2_zero || (CACHE_ENABLE != 0 && 
-                                        scoreboard_if[i].data.rs2 == cache_reg[scoreboard_if[i].data.wis] && 
-                                        (scoreboard_if[i].data.tmask & cache_tmask[scoreboard_if[i].data.wis]) == scoreboard_if[i].data.tmask)) begin
-                        rs2_data_n   = (is_rs2_zero || CACHE_ENABLE == 0) ? '0 : cache_data[scoreboard_if[i].data.wis];
-                        rs2_ready_n  = 1;
-                    end else begin
-                        rs2_ready_n  = 0;
-                        gpr_rd_rid_n = scoreboard_if[i].data.rs2;
-                        data_ready_n = 0;
-                        state_n      = STATE_FETCH2;
-                    end
-                    if (is_rs1_zero || (CACHE_ENABLE != 0 && 
-                                        scoreboard_if[i].data.rs1 == cache_reg[scoreboard_if[i].data.wis] && 
-                                        (scoreboard_if[i].data.tmask & cache_tmask[scoreboard_if[i].data.wis]) == scoreboard_if[i].data.tmask)) begin
-                        rs1_data_n   = (is_rs1_zero || CACHE_ENABLE == 0) ? '0 : cache_data[scoreboard_if[i].data.wis];
-                    end else begin
-                        gpr_rd_rid_n = scoreboard_if[i].data.rs1;
-                        data_ready_n = 0;
-                        state_n      = STATE_FETCH1;
-                    end
-                end
-                gpr_rd_wis_n = scoreboard_if[i].data.wis;
-                rs2_n = scoreboard_if[i].data.rs2;
-                rs3_n = scoreboard_if[i].data.rs3;
+            // allocate cu, be ready to check rat and to accept new data from ibuffer
+            if ((previous_pc != ibuffer_if[i].data.PC) && allocate_cu_valid && ibuffer_if[i].valid) begin
+                collector_units[cu_to_allocate].allocated = 1;
+                collector_units[cu_to_allocate].data = ibuffer_if[i].data;
+                previous_pc = ibuffer_if[i].data.PC;
+
+                ibuffer_ready_n = 1;
+                cu_to_check_rat_n = cu_to_allocate;
+                check_rat_n = 1;
+            end else begin
+                ibuffer_ready_n = 0;
+                cu_to_check_rat_n = cu_to_check_rat;
+                check_rat_n = 0;
             end
-            STATE_FETCH1: begin
-                rs1_data_n = gpr_rd_data;
-                if (~rs2_ready) begin
-                    gpr_rd_rid_n = rs2;
-                    state_n = STATE_FETCH2;
-                end else if (~rs3_ready) begin
-                    gpr_rd_rid_n = rs3;
-                    state_n = STATE_FETCH3;
-                end else begin
-                    data_ready_n = 1;
-                    state_n = STATE_IDLE;
-                end
-            end
-            STATE_FETCH2: begin
-                rs2_data_n = gpr_rd_data;
-                if (~rs3_ready) begin
-                    gpr_rd_rid_n = rs3;
-                    state_n = STATE_FETCH3;
-                end else begin
-                    data_ready_n = 1;
-                    state_n = STATE_IDLE;
-                end
-            end
-            STATE_FETCH3: begin
-                rs3_data_n = gpr_rd_data;
-                data_ready_n = 1;
-                state_n = STATE_IDLE;
-            end
-            endcase
             
+            for (int j = 0; j < `CU_RATIO; j++) begin
+
+                empty_cus[j] = ~(collector_units[j].allocated);
+
+                if (collector_units[j].allocated) begin
+                    // for unused rs1, rs2, rs3 set ready to 1
+                    if (collector_units[j].data.rs1 == 0) begin
+                        collector_units[j].rs1_ready = 1;
+                        collector_units[j].rs1_data = '0;
+                        collector_units[j].rs1_from_rf = 0;
+                    end
+                    if (collector_units[j].data.rs2 == 0) begin
+                        collector_units[j].rs2_ready = 1;
+                        collector_units[j].rs2_data = '0;
+                        collector_units[j].rs2_from_rf = 0;
+                    end
+                    if (collector_units[j].data.rs3 == 0) begin
+                        collector_units[j].rs3_ready = 1;
+                        collector_units[j].rs3_data = '0;
+                        collector_units[j].rs3_from_rf = 0;
+                    end
+
+                    // a cu needs to check rf
+                    if ((collector_units[j].rs1_from_rf && collector_units[j].rs1_ready==0) || collector_units[j].rs2_from_rf && collector_units[j].rs2_ready==0 || collector_units[j].rs3_from_rf && collector_units[j].rs3_ready==0) begin
+                        reading_cus[j] = 1;
+                    end else begin
+                        reading_cus[j] = 0;                        
+                    end
+
+                    // a cu is ready to use operands_if to dispatch
+                    if (collector_units[j].rs1_ready && collector_units[j].rs2_ready && collector_units[j].rs3_ready) begin
+                        ready_cus[j] = 1;
+                    end else begin
+                        ready_cus[j] = 0;
+                    end
+                    
+                end else begin
+                    reading_cus[j] = 0;
+                    ready_cus[j] = 0;
+                end
+            end
+
+            if (stg_valid_in) begin
+                operands_if[i].data.rs1_data = collector_units[cu_to_dispatch].rs1_data;
+                operands_if[i].data.rs2_data = collector_units[cu_to_dispatch].rs2_data;
+                operands_if[i].data.rs3_data = collector_units[cu_to_dispatch].rs3_data;
+                cu_to_deallocate = cu_to_dispatch;
+                deallocate = 1;
+            end 
+
+            // new cu to read rf
+            if (rf_ready) begin
+                cu_to_read_rf_n = cu_to_read_rf_out;
+                read_cu_valid_n = read_cu_valid_out;
+                gpr_rd_wis_n = collector_units[cu_to_read_rf_out].data.wis;
+            end else begin
+                cu_to_read_rf_n = cu_to_read_rf;
+                read_cu_valid_n = read_cu_valid;
+                gpr_rd_wis_n = gpr_rd_wis;
+            end
+
+            if (read_cu_valid && collector_units[cu_to_read_rf].rs1_from_rf && ~(collector_units[cu_to_read_rf].rs1_ready)) begin
+                gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs1;
+                state_n = 1;
+                rf_ready_n = 0;
+            end else if (read_cu_valid && collector_units[cu_to_read_rf].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
+                gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs2;
+                state_n = 2;
+                rf_ready_n = 0;
+            end else if (read_cu_valid && collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
+                gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs3;
+                state_n = 3;
+                rf_ready_n = 0;
+            end else begin
+                state_n = 0;
+                rf_ready_n = 1;
+            end
+
+            if (state == 1) begin
+                collector_units[cu_to_read_rf].rs1_data = gpr_rd_data;
+                collector_units[cu_to_read_rf].rs1_ready = 1;
+            end else if (state == 2) begin
+                collector_units[cu_to_read_rf].rs2_data = gpr_rd_data;
+                collector_units[cu_to_read_rf].rs2_ready = 1;
+            end else if (state == 3) begin
+                collector_units[cu_to_read_rf].rs3_data = gpr_rd_data;
+                collector_units[cu_to_read_rf].rs3_ready = 1;
+            end
+
             if (CACHE_ENABLE != 0 && writeback_if[i].valid) begin
                 if ((cache_reg[writeback_if[i].data.wis] == writeback_if[i].data.rd) 
                  || (cache_eop[writeback_if[i].data.wis] && writeback_if[i].data.sop)) begin
@@ -170,32 +235,105 @@ module VX_operands import VX_gpu_pkg::*; #(
             end
         end
 
+        // for selecting a cu to allocate
+        VX_lzc #(
+            .N       (`CU_RATIO),
+            .REVERSE (1)
+        ) allocate_cu_select (
+            .data_in   (empty_cus),
+            .data_out  (cu_to_allocate),
+            .valid_out (allocate_cu_valid)
+        );
+
+        // for selecting a cu to read rf
+        VX_lzc #(
+            .N       (`CU_RATIO),
+            .REVERSE (1)
+        ) reading_cu_select (
+            .data_in   (reading_cus),
+            .data_out  (cu_to_read_rf_out),
+            .valid_out (read_cu_valid_out)
+        );
+
+        // for selecting a cu to dispatch
+        VX_lzc #(
+            .N       (`CU_RATIO),
+            .REVERSE (1)
+        ) dispatch_cu_select (
+            .data_in   (ready_cus),
+            .data_out  (cu_to_dispatch_n),
+            .valid_out (dispatch_cu_valid)
+        );
+
+
         always @(posedge clk)  begin
             if (reset) begin 
-                state       <= STATE_IDLE;
                 cache_eop   <= {ISSUE_RATIO{1'b1}};
-                data_ready  <= 0;
+                for (i = 0; i < `CU_RATIO; i = i + 1) begin
+                    collector_units[i].allocated <= 1'b0;
+                    collector_units[i].rs1_ready <= 1'b0;
+                    collector_units[i].rs2_ready <= 1'b0;
+                    collector_units[i].rs3_ready <= 1'b0;
+                    collector_units[i].rs1_from_rf <= 1'b0;
+                    collector_units[i].rs2_from_rf <= 1'b0;
+                    collector_units[i].rs3_from_rf <= 1'b0;
+                end
+                for (i = 0; i < `UP(`ISSUE_RATIO); i = i + 1) begin
+                    for (j = 0; j < `NUM_REGS; j = j + 1) begin
+                        reg_alias_table[i][j].from_rf <= 1;
+                    end
+                end
+                ibuffer_ready <= 1'b0;
+                stg_ready <= 1'b0;
+                check_rat <= 1'b0;
+                previous_pc <= 0;
             end else begin
-                state       <= state_n;
                 cache_eop   <= cache_eop_n;
-                data_ready  <= data_ready_n;
+                check_rat <= check_rat_n;
+                stg_ready <= stg_ready_n;
             end
             gpr_rd_rid  <= gpr_rd_rid_n;
-            gpr_rd_wis  <= gpr_rd_wis_n;
-            rs2_ready   <= rs2_ready_n;
-            rs3_ready   <= rs3_ready_n;
-            rs2         <= rs2_n;
-            rs3         <= rs3_n;
-            rs1_data    <= rs1_data_n;
-            rs2_data    <= rs2_data_n;
-            rs3_data    <= rs3_data_n;          
+            gpr_rd_wis  <= gpr_rd_wis_n;        
             cache_data  <= cache_data_n;
             cache_reg   <= cache_reg_n;
             cache_tmask <= cache_tmask_n;
-        end
+            ibuffer_ready <= ibuffer_ready_n;
+            cu_to_check_rat <= cu_to_check_rat_n;
+            cu_to_read_rf <= cu_to_read_rf_n;
+            cu_to_dispatch <= cu_to_dispatch_n;
+            state <= state_n;
+            read_cu_valid <= read_cu_valid_n;
 
-        assign stg_valid_in = scoreboard_if[i].valid && data_ready;
-        assign scoreboard_if[i].ready = stg_ready_in && data_ready;        
+            if (check_rat) begin  
+                if (collector_units[cu_to_check_rat].data.rs1 != 0) begin
+                    collector_units[cu_to_check_rat].rs1_from_rf <= reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf;
+                    collector_units[cu_to_check_rat].rs1_source <= reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id;
+                end
+                if (collector_units[cu_to_check_rat].data.rs2 != 0) begin
+                    collector_units[cu_to_check_rat].rs2_from_rf <= reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf;
+                    collector_units[cu_to_check_rat].rs2_source <= reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id;
+                end
+                if (collector_units[cu_to_check_rat].data.rs3 != 0) begin
+                    collector_units[cu_to_check_rat].rs3_from_rf <= reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf;
+                    collector_units[cu_to_check_rat].rs3_source <= reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id;
+                end
+                reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rd].from_rf <= 0;
+                reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rd].cu_id <= cu_to_check_rat;
+            end
+
+            if (deallocate) begin
+                collector_units[cu_to_deallocate].allocated <= 0;
+                collector_units[cu_to_deallocate].rs1_ready <= 0;
+                collector_units[cu_to_deallocate].rs2_ready <= 0;
+                collector_units[cu_to_deallocate].rs3_ready <= 0;
+                collector_units[cu_to_deallocate].rs1_from_rf <= 0;
+                collector_units[cu_to_deallocate].rs2_from_rf <= 0;
+                collector_units[cu_to_deallocate].rs3_from_rf <= 0;
+            end
+        end       
+
+        assign ibuffer_if[i].ready = ibuffer_ready;
+        assign stg_valid_in = stg_ready && dispatch_cu_valid;
 
         VX_toggle_buffer #(
             .DATAW (DATAW)
@@ -204,18 +342,18 @@ module VX_operands import VX_gpu_pkg::*; #(
             .reset     (reset),
             .valid_in  (stg_valid_in),
             .data_in   ({
-                scoreboard_if[i].data.uuid,
-                scoreboard_if[i].data.wis,
-                scoreboard_if[i].data.tmask,
-                scoreboard_if[i].data.PC, 
-                scoreboard_if[i].data.wb,
-                scoreboard_if[i].data.ex_type,
-                scoreboard_if[i].data.op_type,
-                scoreboard_if[i].data.op_mod,
-                scoreboard_if[i].data.use_PC,
-                scoreboard_if[i].data.use_imm,
-                scoreboard_if[i].data.imm,
-                scoreboard_if[i].data.rd
+                collector_units[cu_to_dispatch].data.uuid,
+                collector_units[cu_to_dispatch].data.wis,
+                collector_units[cu_to_dispatch].data.tmask,
+                collector_units[cu_to_dispatch].data.PC, 
+                collector_units[cu_to_dispatch].data.wb,
+                collector_units[cu_to_dispatch].data.ex_type,
+                collector_units[cu_to_dispatch].data.op_type,
+                collector_units[cu_to_dispatch].data.op_mod,
+                collector_units[cu_to_dispatch].data.use_PC,
+                collector_units[cu_to_dispatch].data.use_imm,
+                collector_units[cu_to_dispatch].data.imm,
+                collector_units[cu_to_dispatch].data.rd
             }),
             .ready_in  (stg_ready_in),
             .valid_out (operands_if[i].valid),
@@ -235,10 +373,6 @@ module VX_operands import VX_gpu_pkg::*; #(
             }),
             .ready_out (operands_if[i].ready)
         );
-
-        assign operands_if[i].data.rs1_data = rs1_data;
-        assign operands_if[i].data.rs2_data = rs2_data;
-        assign operands_if[i].data.rs3_data = rs3_data;
 
         // GPR banks
 
@@ -276,7 +410,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                 .NO_RWCHECK (1)
             ) gpr_ram (
                 .clk   (clk),
-                .read  (1'b1),
+                .read  (read_cu_valid),
                 `UNUSED_PIN (wren),
             `ifdef GPR_RESET
                 .write (wr_enabled && writeback_if[i].valid && writeback_if[i].data.tmask[j]),
