@@ -35,10 +35,32 @@ module VX_commit import VX_gpu_pkg::*; #(
     // simulation helper signals
     output wire [`NUM_REGS-1:0][`XLEN-1:0] sim_wb_value
 );
+
+    typedef struct packed {
+        logic [`UUID_WIDTH-1:0]     uuid;
+        logic [`NW_WIDTH-1:0]       wid;
+        logic [`NUM_THREADS-1:0]    tmask;
+        logic [`XLEN-1:0]           PC;
+        logic                       wb;
+        logic [`NR_BITS-1:0]        rd;
+        logic [`NUM_THREADS-1:0][`XLEN-1:0] data;
+        logic                       pid;
+        logic                       sop;
+        logic                       eop;
+    } data_t;
+
+    typedef struct packed {
+        logic valid;
+        data_t data;
+    } commit_buffer_t;
+
     `UNUSED_PARAM (CORE_ID)
+    /* verilator lint_off UNUSED */
     localparam DATAW = `UUID_WIDTH + `NW_WIDTH + `NUM_THREADS + `XLEN + 1 + `NR_BITS + `NUM_THREADS * `XLEN + 1 + 1 + 1;
     localparam COMMIT_SIZEW = `CLOG2(`NUM_THREADS + 1);
     localparam COMMIT_ALL_SIZEW = COMMIT_SIZEW + `ISSUE_WIDTH - 1;
+    localparam int cu_lt_bits = (CU_RATIO > 8) ? 32 : 4;
+    /* verilator lint_on UNUSED */
 
     // commit arbitration
 
@@ -50,6 +72,15 @@ module VX_commit import VX_gpu_pkg::*; #(
     wire [`ISSUE_WIDTH-1:0] commit_eop;
 
     for (genvar i = 0; i < `ISSUE_WIDTH; ++i) begin
+//        /* verilator lint_off UNUSED */
+//        commit_buffer_t [CU_RATIO:0] commit_buffer, commit_buffer_n;
+//        reg [7:0] next_empty_slot;
+//        logic [7:0] next_empty_slot_n;
+//        logic [7:0] next_slot1, next_slot2, next_slot3;
+//        reg [CU_WIS_W:0] slot_to_commit;
+//        logic [CU_WIS_W:0] slot_to_commit_n;
+//        /* verilator lint_on UNUSED */
+
 
         `RESET_RELAY (arb_reset, reset);
 
@@ -90,11 +121,132 @@ module VX_commit import VX_gpu_pkg::*; #(
             .ready_out (commit_if[i].ready),
             `UNUSED_PIN (sel_out)
         );
+///* verilator lint_off LATCH */
+//        always @(*) begin
+//            next_empty_slot_n = next_empty_slot;
+//            slot_to_commit_n = slot_to_commit;
+//            commit_buffer_n = commit_buffer;
+//
+//            if (reset) begin
+//                next_empty_slot_n = 0;
+//                slot_to_commit_n = 0;
+//                for (logic[cu_lt_bits-1:0] j = 0; j < 2*CU_RATIO; j = j + 1) begin
+//                    commit_buffer_n[j[CU_WIS_W:0]].valid = 0;
+//                end
+//            end
+//
+//            if (alu_commit_if[i].valid) begin
+//                commit_buffer_n[next_empty_slot[CU_WIS_W:0]].data = alu_commit_if[i].data;
+//                commit_buffer_n[next_empty_slot[CU_WIS_W:0]].valid = alu_commit_if[i].valid;
+//                if (lsu_commit_if[i].valid) begin
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].data = lsu_commit_if[i].data;
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].valid = lsu_commit_if[i].valid;
+//                    if (sfu_commit_if[i].valid) begin
+//                        commit_buffer_n[next_slot2[CU_WIS_W:0]].data = sfu_commit_if[i].data;
+//                        commit_buffer_n[next_slot2[CU_WIS_W:0]].valid = sfu_commit_if[i].valid;
+//                        `ifdef EXT_F_ENABLE
+//                        if (fpu_commit_if[i].valid) begin
+//                            next_empty_slot_n = next_empty_slot + 4;
+//                            commit_buffer_n[next_slot3[CU_WIS_W:0]].data = fpu_commit_if[i].data;
+//                            commit_buffer_n[next_slot3[CU_WIS_W:0]].valid = fpu_commit_if[i].valid;
+//                        end else begin
+//                            next_empty_slot_n = next_empty_slot + 3;
+//                        end
+//                        `else
+//                        next_empty_slot_n = next_empty_slot + 3;
+//                        `endif
+//                    end else begin
+//                        next_empty_slot_n = next_empty_slot + 2;
+//                    end
+//                end else begin
+//                    next_empty_slot_n = next_empty_slot + 1;
+//                end
+//            end else if (lsu_commit_if[i].valid) begin
+//                commit_buffer_n[next_empty_slot[CU_WIS_W:0]].data = lsu_commit_if[i].data;
+//                commit_buffer_n[next_empty_slot[CU_WIS_W:0]].valid = lsu_commit_if[i].valid;
+//                if (sfu_commit_if[i].valid) begin
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].data = sfu_commit_if[i].data;
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].valid = sfu_commit_if[i].valid;
+//                    `ifdef EXT_F_ENABLE
+//                    if (fpu_commit_if[i].valid) begin
+//                        next_empty_slot_n = next_empty_slot + 3;
+//                        commit_buffer_n[next_slot2[CU_WIS_W:0]].data = fpu_commit_if[i].data;
+//                        commit_buffer_n[next_slot2[CU_WIS_W:0]].valid = fpu_commit_if[i].valid;
+//                    end else begin
+//                        next_empty_slot_n = next_empty_slot + 2;
+//                    end
+//                    `else
+//                    next_empty_slot_n = next_empty_slot + 2;
+//                    `endif
+//                end else begin
+//                    next_empty_slot_n = next_empty_slot + 1;
+//                end
+//            end else if (sfu_commit_if[i].valid) begin
+//                commit_buffer_n[next_empty_slot[CU_WIS_W:0]].data = sfu_commit_if[i].data;
+//                commit_buffer_n[next_empty_slot[CU_WIS_W:0]].valid = sfu_commit_if[i].valid;
+//                `ifdef EXT_F_ENABLE
+//                if (fpu_commit_if[i].valid) begin
+//                    next_empty_slot_n = next_empty_slot + 2;
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].data = fpu_commit_if[i].data;
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].valid = fpu_commit_if[i].valid;
+//                end else begin
+//                    next_empty_slot_n = next_empty_slot + 1;
+//                end
+//                `else
+//                next_empty_slot_n = next_empty_slot + 1;
+//                `endif
+//            end else begin
+//                `ifdef EXT_F_ENABLE
+//                if (fpu_commit_if[i].valid) begin
+//                    next_empty_slot_n = next_empty_slot + 1;
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].data = fpu_commit_if[i].data;
+//                    commit_buffer_n[next_slot1[CU_WIS_W:0]].valid = fpu_commit_if[i].valid;
+//                end else begin
+//                    next_empty_slot_n = next_empty_slot;
+//                end
+//                `else
+//                next_empty_slot_n = next_empty_slot;
+//                `endif
+//            end
+//
+//
+//            if (commit_buffer[slot_to_commit].valid) begin
+//                commit_if[i].data = commit_buffer[slot_to_commit].data;
+//                commit_if[i].valid = commit_buffer[slot_to_commit].valid;
+//                commit_buffer_n[slot_to_commit].valid = 0;
+//                slot_to_commit_n = slot_to_commit + 1;
+//            end else begin
+//                commit_if[i].valid = 0;
+//                slot_to_commit_n = slot_to_commit;
+//            end
+//        end 
+///* verilator lint_on LATCH */
 
         assign commit_fire[i] = commit_if[i].valid && commit_if[i].ready;        
         assign commit_tmask[i]= {`NUM_THREADS{commit_fire[i]}} & commit_if[i].data.tmask;
         assign commit_wid[i]  = commit_if[i].data.wid;
         assign commit_eop[i]  = commit_if[i].data.eop;
+//        assign next_slot1 = next_empty_slot + 1;
+//        assign next_slot2 = next_empty_slot + 2;
+//        assign next_slot3 = next_empty_slot + 3;
+//
+//        always @(posedge clk) begin
+//            if (reset) begin
+//                next_empty_slot <= 0;
+//                slot_to_commit <= 0;
+//                for (logic[cu_lt_bits-1:0] j = 0; j < 2*CU_RATIO; j = j + 1) begin
+//                    commit_buffer[j[CU_WIS_W:0]].valid <= 0;
+//                end
+//            end else begin
+//                next_empty_slot <= next_empty_slot_n;
+//                slot_to_commit <= slot_to_commit_n;
+//                for (logic[cu_lt_bits-1:0] j = 0; j < 2*CU_RATIO; j = j + 1) begin
+//                    commit_buffer[j[CU_WIS_W:0]].data <= commit_buffer_n[j[CU_WIS_W:0]].data;
+//                    commit_buffer[j[CU_WIS_W:0]].valid <= commit_buffer_n[j[CU_WIS_W:0]].valid;
+//                end
+//            end
+//        end
+//
     end
 
     // CSRs update
