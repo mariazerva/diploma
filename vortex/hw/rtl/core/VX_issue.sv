@@ -36,7 +36,7 @@ module VX_issue #(
     VX_dispatch_if.master   lsu_dispatch_if [`ISSUE_WIDTH],
 `ifdef EXT_F_ENABLE
     VX_dispatch_if.master   fpu_dispatch_if [`ISSUE_WIDTH],
-`endifi
+`endif
     VX_dispatch_if.master   sfu_dispatch_if [`ISSUE_WIDTH]
 );
     VX_ibuffer_if  ibuffer_if [`ISSUE_WIDTH]();
@@ -44,7 +44,7 @@ module VX_issue #(
     VX_operands_if operands_if [`ISSUE_WIDTH]();
 
     `RESET_RELAY (ibuf_reset, reset);
-    `RESET_RELAY (scoreboard_reset, reset);
+    //`RESET_RELAY (scoreboard_reset, reset);
     `RESET_RELAY (operands_reset, reset);
     `RESET_RELAY (dispatch_reset, reset);
 

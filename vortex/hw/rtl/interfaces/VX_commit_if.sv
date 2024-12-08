@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-interface VX_commit_if #(
+interface VX_commit_if import VX_gpu_pkg::*; #( 
     parameter NUM_LANES = `NUM_THREADS,
     parameter PID_WIDTH = `LOG2UP(`NUM_THREADS / NUM_LANES)
 ) ();
@@ -29,6 +29,7 @@ interface VX_commit_if #(
         logic [PID_WIDTH-1:0]       pid;
         logic                       sop;
         logic                       eop;
+        logic [CU_WIS_W-1:0]       cu_id;
     } data_t;
 
     logic  valid;

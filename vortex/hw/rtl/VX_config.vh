@@ -243,7 +243,7 @@
 
 // Number of Collector units
 `ifndef NUM_CUS
-`define NUM_CUS `MIN(`NUM_WARPS * `ISSUE_WIDTH, 8)
+`define NUM_CUS `MIN(`NUM_WARPS * `ISSUE_WIDTH, 16)
 `endif
 
 // Number of ALU units

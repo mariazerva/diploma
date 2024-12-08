@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-interface VX_execute_if #(
+interface VX_execute_if import VX_gpu_pkg::*; #( 
     parameter NUM_LANES = 1,
     parameter PID_WIDTH = `LOG2UP(`NUM_THREADS / NUM_LANES)
 ) ();
@@ -36,10 +36,13 @@ interface VX_execute_if #(
         logic [PID_WIDTH-1:0]           pid;
         logic                           sop;
         logic                           eop;
+        logic [CU_WIS_W-1:0]            cu_id;
     } data_t;
 
     logic  valid;
+    /* verilator lint_off UNUSED */
     data_t data;
+    /* verilator lint_on UNUSED */
     logic  ready;
 
     modport master (

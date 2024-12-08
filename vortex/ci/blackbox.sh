@@ -140,10 +140,10 @@ if [ $ISSUE_WIDTH -eq -1 ]; then
     ISSUE_WIDTH=$(($WARPS<4?$WARPS:4))
 fi
 
-# default number of collector units = min(8, num_warps*issue_width)
+# default number of collector units = min(16, num_warps*issue_width)
 if [ $NUM_CUS -eq -1 ]; then
     NUM_CUS=$(($WARPS*$ISSUE_WIDTH))
-    NUM_CUS=$(($NUM_CUS<8?$NUM_CUS:8))
+    NUM_CUS=$(($NUM_CUS<16?$NUM_CUS:16))
 fi
 
 if [ $REBUILD -eq 3 ];

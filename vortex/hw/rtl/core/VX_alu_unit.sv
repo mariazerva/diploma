@@ -13,7 +13,7 @@
 
 `include "VX_define.vh"
 
-module VX_alu_unit #(
+module VX_alu_unit import VX_gpu_pkg::*; #( 
     parameter CORE_ID = 0
 ) (
     input wire              clk,
@@ -32,7 +32,7 @@ module VX_alu_unit #(
     localparam NUM_LANES    = `NUM_ALU_LANES;
     localparam PID_BITS     = `CLOG2(`NUM_THREADS / NUM_LANES);
     localparam PID_WIDTH    = `UP(PID_BITS);
-    localparam RSP_ARB_DATAW= `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + 1 + NUM_LANES * `XLEN + PID_WIDTH + 1 + 1;
+    localparam RSP_ARB_DATAW= CU_WIS_W + `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + 1 + NUM_LANES * `XLEN + PID_WIDTH + 1 + 1;
     localparam RSP_ARB_SIZE = 1 + `EXT_M_ENABLED;
     localparam PARTIAL_BW   = (BLOCK_SIZE != `ISSUE_WIDTH) || (NUM_LANES != `NUM_THREADS);
 

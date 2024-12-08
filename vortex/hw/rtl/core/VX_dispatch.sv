@@ -36,7 +36,7 @@ module VX_dispatch import VX_gpu_pkg::*; #(
 );
     `UNUSED_PARAM (CORE_ID)
 
-    localparam DATAW = `UUID_WIDTH + ISSUE_WIS_W + `NUM_THREADS + `INST_OP_BITS + `INST_MOD_BITS + 1 + 1 + 1 + `XLEN + `XLEN + `NR_BITS + (3 * `NUM_THREADS * `XLEN) + `NT_WIDTH;
+    localparam DATAW = CU_WIS_W + `UUID_WIDTH + ISSUE_WIS_W + `NUM_THREADS + `INST_OP_BITS + `INST_MOD_BITS + 1 + 1 + 1 + `XLEN + `XLEN + `NR_BITS + (3 * `NUM_THREADS * `XLEN) + `NT_WIDTH;
 
     wire [`ISSUE_WIDTH-1:0][`NT_WIDTH-1:0] last_active_tid;
 
@@ -221,7 +221,7 @@ module VX_dispatch import VX_gpu_pkg::*; #(
             if (operands_if[i].valid && operands_if[i].ready) begin
                 `TRACE(1, ("%d: core%0d-issue: wid=%0d, PC=0x%0h, ex=", $time, CORE_ID, wis_to_wid(operands_if[i].data.wis, i), operands_if[i].data.PC));
                 trace_ex_type(1, operands_if[i].data.ex_type);
-                `TRACE(1, (", mod=%0d, tmask=%b, wb=%b, rd=%0d, rs1_data=", operands_if[i].data.op_mod, operands_if[i].data.tmask, operands_if[i].data.wb, operands_if[i].data.rd));
+                `TRACE(1, (", mod=%0d, tmask=%b, cu_id=%d, wb=%b, rd=%0d, rs1_data=", operands_if[i].data.op_mod, operands_if[i].data.tmask, operands_if[i].data.cu_id, operands_if[i].data.wb, operands_if[i].data.rd));
                 `TRACE_ARRAY1D(1, operands_if[i].data.rs1_data, `NUM_THREADS);
                 `TRACE(1, (", rs2_data="));
                 `TRACE_ARRAY1D(1, operands_if[i].data.rs2_data, `NUM_THREADS);

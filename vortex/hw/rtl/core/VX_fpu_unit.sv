@@ -14,7 +14,7 @@
 `include "VX_define.vh"
 `include "VX_fpu_define.vh"
 
-module VX_fpu_unit import VX_fpu_pkg::*; #(
+module VX_fpu_unit import VX_fpu_pkg::*; import VX_gpu_pkg::*; #( 
     parameter CORE_ID = 0
 ) (
     input wire clk,
@@ -75,6 +75,7 @@ module VX_fpu_unit import VX_fpu_pkg::*; #(
         wire [PID_WIDTH-1:0]    fpu_rsp_pid;
         wire                    fpu_rsp_sop;
         wire                    fpu_rsp_eop;
+        wire [CU_WIS_W-1:0]    fpu_rsp_cu_id;
 
         wire [TAG_WIDTH-1:0] fpu_req_tag, fpu_rsp_tag;    
         wire mdata_full;
@@ -86,15 +87,15 @@ module VX_fpu_unit import VX_fpu_pkg::*; #(
         wire fpu_rsp_fire = fpu_rsp_valid && fpu_rsp_ready;
 
         VX_index_buffer #(
-            .DATAW  (`UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + PID_WIDTH + 1 + 1),
+            .DATAW  (CU_WIS_W + `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + PID_WIDTH + 1 + 1),
             .SIZE   (`FPUQ_SIZE)
         ) tag_store (
             .clk          (clk),
             .reset        (reset),
             .acquire_en   (execute_fire), 
             .write_addr   (fpu_req_tag), 
-            .write_data   ({execute_if[block_idx].data.uuid, execute_if[block_idx].data.wid, execute_if[block_idx].data.tmask, execute_if[block_idx].data.PC, execute_if[block_idx].data.rd, execute_if[block_idx].data.pid, execute_if[block_idx].data.sop, execute_if[block_idx].data.eop}),
-            .read_data    ({fpu_rsp_uuid, fpu_rsp_wid, fpu_rsp_tmask, fpu_rsp_PC, fpu_rsp_rd, fpu_rsp_pid, fpu_rsp_sop, fpu_rsp_eop}),
+            .write_data   ({execute_if[block_idx].data.uuid, execute_if[block_idx].data.wid, execute_if[block_idx].data.tmask, execute_if[block_idx].data.PC, execute_if[block_idx].data.rd, execute_if[block_idx].data.pid, execute_if[block_idx].data.sop, execute_if[block_idx].data.eop, execute_if[block_idx].data.cu_id}),
+            .read_data    ({fpu_rsp_uuid, fpu_rsp_wid, fpu_rsp_tmask, fpu_rsp_PC, fpu_rsp_rd, fpu_rsp_pid, fpu_rsp_sop, fpu_rsp_eop, fpu_rsp_cu_id}),
             .read_addr    (fpu_rsp_tag),
             .release_en   (fpu_rsp_fire), 
             .full         (mdata_full),
@@ -228,15 +229,15 @@ module VX_fpu_unit import VX_fpu_pkg::*; #(
         // send response
 
         VX_elastic_buffer #(
-            .DATAW (`UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + (NUM_LANES * `XLEN) + PID_WIDTH + 1 + 1),
+            .DATAW (CU_WIS_W + `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + (NUM_LANES * `XLEN) + PID_WIDTH + 1 + 1),
             .SIZE  (0)
         ) rsp_buf (
             .clk       (clk),
             .reset     (reset),
             .valid_in  (fpu_rsp_valid),
             .ready_in  (fpu_rsp_ready),
-            .data_in   ({fpu_rsp_uuid, fpu_rsp_wid, fpu_rsp_tmask, fpu_rsp_PC, fpu_rsp_rd, fpu_rsp_result, fpu_rsp_pid, fpu_rsp_sop, fpu_rsp_eop}),
-            .data_out  ({commit_block_if[block_idx].data.uuid, commit_block_if[block_idx].data.wid, commit_block_if[block_idx].data.tmask, commit_block_if[block_idx].data.PC, commit_block_if[block_idx].data.rd, commit_block_if[block_idx].data.data, commit_block_if[block_idx].data.pid, commit_block_if[block_idx].data.sop, commit_block_if[block_idx].data.eop}),
+            .data_in   ({fpu_rsp_uuid, fpu_rsp_wid, fpu_rsp_tmask, fpu_rsp_PC, fpu_rsp_rd, fpu_rsp_result, fpu_rsp_pid, fpu_rsp_sop, fpu_rsp_eop, fpu_rsp_cu_id}),
+            .data_out  ({commit_block_if[block_idx].data.uuid, commit_block_if[block_idx].data.wid, commit_block_if[block_idx].data.tmask, commit_block_if[block_idx].data.PC, commit_block_if[block_idx].data.rd, commit_block_if[block_idx].data.data, commit_block_if[block_idx].data.pid, commit_block_if[block_idx].data.sop, commit_block_if[block_idx].data.eop, commit_block_if[block_idx].data.cu_id}),
             .valid_out (commit_block_if[block_idx].valid),
             .ready_out (commit_block_if[block_idx].ready)
         );

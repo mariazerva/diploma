@@ -24,10 +24,13 @@ interface VX_writeback_if import VX_gpu_pkg::*; ();
         logic [`NUM_THREADS-1:0][`XLEN-1:0] data;
         logic                           sop;
         logic                           eop;
+        logic [CU_WIS_W-1:0]           cu_id;
     } data_t;
 
     logic  valid;
+    /* verilator lint_off UNUSED */
     data_t data;
+    /* verilator lint_on UNUSED */
 
     modport master (
         output valid,
