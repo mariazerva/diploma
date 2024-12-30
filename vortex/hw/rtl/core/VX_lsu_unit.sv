@@ -34,7 +34,7 @@ module VX_lsu_unit import VX_gpu_pkg::*; #(
     localparam NUM_LANES    = `NUM_LSU_LANES;
     localparam PID_BITS     = `CLOG2(`NUM_THREADS / NUM_LANES);
     localparam PID_WIDTH    = `UP(PID_BITS);
-    localparam RSP_ARB_DATAW=  CU_WIS_W + `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + 1 + NUM_LANES * `XLEN + PID_WIDTH + 1 + 1;
+    localparam RSP_ARB_DATAW= `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + 1 + NUM_LANES * `XLEN + PID_WIDTH + 1 + 1;
     localparam LSUQ_SIZEW   = `LOG2UP(`LSUQ_SIZE);
     localparam MEM_ASHIFT   = `CLOG2(`MEM_BLOCK_SIZE);    
     localparam MEM_ADDRW    = `XLEN - MEM_ASHIFT;
@@ -509,18 +509,63 @@ module VX_lsu_unit import VX_gpu_pkg::*; #(
     // load commit
 
     VX_elastic_buffer #(
-        .DATAW (`UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + (NUM_LANES * `XLEN) + PID_WIDTH + 1 + 1),
+        .DATAW (CU_WIS_W + `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `XLEN + `NR_BITS + (NUM_LANES * `XLEN) + PID_WIDTH + 1 + 1),
         .SIZE  (2)
     ) ld_rsp_buf (
         .clk       (clk),
         .reset     (reset),
         .valid_in  (mem_rsp_valid),
         .ready_in  (mem_rsp_ready),
-        .data_in   ({rsp_uuid, rsp_wid, rsp_tmask, rsp_pc, rsp_rd, rsp_data, rsp_pid, mem_rsp_sop_pkt, mem_rsp_eop_pkt}),
-        .data_out  ({commit_ld_if.data.uuid, commit_ld_if.data.wid, commit_ld_if.data.tmask, commit_ld_if.data.PC, commit_ld_if.data.rd, commit_ld_if.data.data, commit_ld_if.data.pid, commit_ld_if.data.sop, commit_ld_if.data.eop}),
+        .data_in   ({rsp_uuid, rsp_wid, rsp_tmask, rsp_pc, rsp_rd, rsp_data, rsp_pid, mem_rsp_sop_pkt, mem_rsp_eop_pkt, rsp_cu_id}),
+        .data_out  ({commit_ld_if.data.uuid, commit_ld_if.data.wid, commit_ld_if.data.tmask, commit_ld_if.data.PC, commit_ld_if.data.rd, commit_ld_if.data.data, commit_ld_if.data.pid, commit_ld_if.data.sop, commit_ld_if.data.eop, commit_ld_if.data.cu_id}),
         .valid_out (commit_ld_if.valid),
         .ready_out (commit_ld_if.ready)
     );
+
+
+    reg [`NUM_CUS-1:0][`UUID_WIDTH-1:0] uuid_per_cu;
+    logic [`NUM_CUS-1:0][`UUID_WIDTH-1:0] uuid_per_cu_n;
+    logic [CU_WIS_W-1:0] rsp_cu_id;
+
+    always @(posedge clk) begin
+        if (reset) begin
+            uuid_per_cu <= '0;
+        end else begin
+            uuid_per_cu <= uuid_per_cu_n;
+        end
+    end
+
+    always @(*) begin
+        rsp_cu_id = '0;
+            if (execute_if[0].valid && execute_if[0].data.wb) begin
+                uuid_per_cu_n[{wid_to_isw(execute_if[0].data.wid), execute_if[0].data.cu_id}] = execute_if[0].data.uuid;
+            end else begin
+                uuid_per_cu_n[{wid_to_isw(execute_if[0].data.wid), execute_if[0].data.cu_id}] = uuid_per_cu[{wid_to_isw(execute_if[0].data.wid), execute_if[0].data.cu_id}];
+            end
+
+        for (integer j=0; j<`NUM_CUS; j=j+1) begin
+            if (mem_rsp_valid && rsp_uuid == uuid_per_cu[j]) begin
+                rsp_cu_id = j[CU_WIS_W-1:0];
+            end
+        end
+        
+    end
+
+
+//    always @(posedge clk) begin
+//        `ifdef DBG_TRACE_CORE_PIPELINE
+//            `TRACE(1, ("%d: LSU: execute_if[0] data:    uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d, valid=%0d, full_cu_id=%0d, op_type=%0d\n", $time, execute_if[0].data.uuid, execute_if[0].data.wid, execute_if[0].data.PC, execute_if[0].data.cu_id, execute_if[0].valid, execute_if[0].data.cu_id, execute_if[0].data.op_type));
+//            `TRACE(1, ("%d: LSU: mem_rsp data:          uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d, valid=%0d\n", $time, rsp_uuid, rsp_wid, rsp_pc, rsp_cu_id, mem_rsp_valid));
+//            `TRACE(1, ("%d: LSU: commit_ld_if data:     uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d, valid=%0d\n", $time, commit_ld_if.data.uuid, commit_ld_if.data.wid, commit_ld_if.data.PC, commit_ld_if.data.cu_id, commit_ld_if.valid));
+//            `TRACE(1, ("%d: LSU: commit_arb_if[0] data: uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d, valid=%0d\n", $time, commit_arb_if[0].data.uuid, commit_arb_if[0].data.wid, commit_arb_if[0].data.PC, commit_arb_if[0].data.cu_id, commit_arb_if[0].valid));
+//            for (integer j=0; j<`NUM_CUS; j=j+1) begin
+//                `TRACE(1, ("%d: LSU: uuid_per_cu[%0d]=%0d\n", $time, j, uuid_per_cu[j]));
+//                if (mem_rsp_valid && rsp_uuid == uuid_per_cu[j]) begin
+//                    `TRACE(1, ("%d: LSU match commit_ld_if.data.uuid=%0d, uuid_per_cu=%0d, cu_id=%0d\n", $time, commit_ld_if.data.uuid, uuid_per_cu[j], j[CU_WIS_W-1:0]));
+//                end
+//            end
+//        `endif
+//    end
 
     assign commit_ld_if.data.wb = 1'b1;
 
@@ -553,7 +598,7 @@ module VX_lsu_unit import VX_gpu_pkg::*; #(
 
     VX_stream_arb #(
         .NUM_INPUTS (2),
-        .DATAW      (RSP_ARB_DATAW),
+        .DATAW      (RSP_ARB_DATAW + CU_WIS_W),
         .OUT_REG    (3)
     ) rsp_arb (
         .clk       (clk),

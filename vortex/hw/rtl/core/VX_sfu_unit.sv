@@ -154,6 +154,15 @@ module VX_sfu_unit import VX_gpu_pkg::*; #(
     end
     assign execute_if[0].ready = sfu_req_ready;
 
+//    `ifdef DBG_TRACE_CORE_PIPELINE
+//    always @(posedge clk) begin
+//        if (execute_if[0].valid && execute_if[0].ready) begin
+//            `TRACE(1, ("%d: SFU: wid=%0d pc=%0h op=%0h", $time, execute_if[0].data.wid, execute_if[0].data.PC, execute_if[0].data.op_type));
+//        end
+//        `TRACE(1, ("%d: SFU: sfu_req_ready=%0d, csr_execute_if.ready=%0d, wctl_execute_if.ready=%0d", $time, sfu_req_ready, csr_execute_if.ready, wctl_execute_if.ready));
+//    end
+//    `endif
+
     // response arbitration
     
     `RESET_RELAY (commit_reset, reset);

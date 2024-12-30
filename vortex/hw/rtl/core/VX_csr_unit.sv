@@ -171,7 +171,29 @@ module VX_csr_unit import VX_gpu_pkg::*; #(
         .valid_out (commit_if.valid),
         .ready_out (commit_if.ready)
     );
-    
+
+//`ifdef DBG_TRACE_CORE_PIPELINE
+//    always @(posedge clk) begin
+//        if (csr_req_valid) begin
+//            `TRACE(1, ("%d: core%0d-csr: wid=%0d, PC=0x%0h, ex=", $time, CORE_ID, execute_if.data.wid, execute_if.data.PC));
+//            if (execute_if.data.op_type == `INST_SFU_CSRRW) begin
+//                `TRACE(1, ("CSRRW, csr_addr=%0h, csr_data=", csr_addr));
+//                `TRACE_ARRAY1D(1, csr_req_data, NUM_LANES);
+//            end else if (execute_if.data.op_type == `INST_SFU_CSRRS) begin
+//                `TRACE(1, ("CSRRS, csr_addr=%0h, csr_data=", csr_addr));
+//                `TRACE_ARRAY1D(1, csr_req_data, NUM_LANES);
+//            end else begin
+//                `TRACE(1, ("CSRRC, csr_addr=%0h, csr_data=", csr_addr));
+//                `TRACE_ARRAY1D(1, csr_req_data, NUM_LANES);
+//            end
+//            `TRACE(1, (", csr_addr=%0h, csr_data=", csr_addr));
+//            `TRACE_ARRAY1D(1, csr_req_data, NUM_LANES);
+//            `TRACE(1, (" (#%0d)\n", execute_if.data.uuid));
+//        end
+//        `TRACE (1, ("%d: core%0d-csr: no_pending_instr=%0d\n", $time, CORE_ID, no_pending_instr));
+//    end
+//`endif
+
     for (genvar i = 0; i < NUM_LANES; ++i) begin
         assign commit_if.data.data[i] = `XLEN'(csr_commit_data[i]);
     end

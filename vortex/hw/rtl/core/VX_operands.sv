@@ -55,6 +55,9 @@ module VX_operands import VX_gpu_pkg::*; #(
         logic [CU_WIS_W-1:0] rs1_source;
         logic [CU_WIS_W-1:0] rs2_source;
         logic [CU_WIS_W-1:0] rs3_source;
+        logic rs1_found_sop;
+        logic rs2_found_sop;
+        logic rs3_found_sop;
         logic rs1_from_rf;
         logic rs2_from_rf;
         logic rs3_from_rf;
@@ -69,7 +72,7 @@ module VX_operands import VX_gpu_pkg::*; #(
     `UNUSED_PARAM (CORE_ID)
     localparam DATAW = `UUID_WIDTH + ISSUE_WIS_W + `NUM_THREADS + `XLEN + 1 + `EX_BITS + `INST_OP_BITS + `INST_MOD_BITS + 1 + 1 + `XLEN + `NR_BITS;
     localparam RAM_ADDRW = `LOG2UP(`NUM_REGS * ISSUE_RATIO);
-    localparam int cu_lt_bits = (`NUM_CUS > 15) ? 32 : 4;
+    //localparam int cu_lt_bits = (`NUM_CUS > 15) ? 32 : 4;
 
     for (genvar i = 0; i < `ISSUE_WIDTH; ++i) begin
         
@@ -79,8 +82,10 @@ module VX_operands import VX_gpu_pkg::*; #(
         rat_data_t [`UP(ISSUE_RATIO)-1:0][`NUM_REGS-1:0] reg_alias_table, reg_alias_table_n;
 
         wire [`NUM_THREADS-1:0][`XLEN-1:0] gpr_rd_data;
-        reg [`NR_BITS-1:0] gpr_rd_rid, gpr_rd_rid_n;
-        reg [ISSUE_WIS_W-1:0] gpr_rd_wis, gpr_rd_wis_n;
+        reg [`NR_BITS-1:0] gpr_rd_rid;
+        logic [`NR_BITS-1:0] gpr_rd_rid_n;
+        reg [ISSUE_WIS_W-1:0] gpr_rd_wis;
+        logic [ISSUE_WIS_W-1:0] gpr_rd_wis_n;
 
         reg [`NUM_THREADS-1:0][`XLEN-1:0] cache_data [ISSUE_RATIO-1:0];
         reg [`NUM_THREADS-1:0][`XLEN-1:0] cache_data_n [ISSUE_RATIO-1:0];
@@ -111,6 +116,9 @@ module VX_operands import VX_gpu_pkg::*; #(
         reg [CU_WIS_W-1:0] cu_to_read_rf;
         logic [CU_WIS_W-1:0] cu_to_read_rf_n, cu_to_read_rf_out;
 
+        reg rs1_ready, rs2_ready, rs3_ready;
+        logic rs1_ready_n, rs2_ready_n, rs3_ready_n;
+
         logic [CU_RATIO-1:0] ready_cus;
         logic [CU_WIS_W-1:0] cu_to_dispatch;
         logic dispatch_cu_valid;
@@ -118,10 +126,14 @@ module VX_operands import VX_gpu_pkg::*; #(
         logic stg_ready_in;
 
         reg [CU_WIS_W-1:0] cu_to_deallocate;
+        reg [CU_WIS_W-1:0] cu_to_dealloc_wb;
         logic [CU_WIS_W-1:0] cu_to_deallocate_n;
+        logic [CU_WIS_W-1:0] cu_to_dealloc_wb_n;
         reg deallocate;
+        reg dealloc_wb;
         logic writeback;
         logic deallocate_n;
+        logic dealloc_wb_n;
         
         /* verilator lint_on UNUSED */
 
@@ -135,15 +147,19 @@ module VX_operands import VX_gpu_pkg::*; #(
             cache_tmask_n = cache_tmask;
             cache_eop_n = cache_eop;
             deallocate_n = 0;
+            dealloc_wb_n = 0;
             writeback = 0;
             cu_to_deallocate_n = 0;
+            cu_to_dealloc_wb_n = 0;
             reg_alias_table_n = reg_alias_table;
             collector_units_n = collector_units;
             check_rat_n = check_rat;
             state_n = state;
             previous_uuid_n = previous_uuid;
             ibuffer_ready_n = ibuffer_ready;
-
+            rs1_ready_n = 0;
+            rs2_ready_n = 0;
+            rs3_ready_n = 0;
 
             // allocate cu, be ready to check rat and to accept new data from ibuffer
             if ((previous_uuid != ibuffer_if[i].data.uuid) && allocate_cu_valid && ibuffer_if[i].valid) begin
@@ -155,17 +171,14 @@ module VX_operands import VX_gpu_pkg::*; #(
                 if (ibuffer_if[i].data.rs1 == 0) begin
                     collector_units_n[cu_to_allocate].rs1_ready = 1;
                     collector_units_n[cu_to_allocate].rs1_data = '0;
-                    //collector_units_n[cu_to_allocate].rs1_from_rf = 0;
                 end
                 if (ibuffer_if[i].data.rs2 == 0) begin
                     collector_units_n[cu_to_allocate].rs2_ready = 1;
                     collector_units_n[cu_to_allocate].rs2_data = '0;
-                    //collector_units_n[cu_to_allocate].rs2_from_rf = 0;
                 end
                 if (ibuffer_if[i].data.rs3 == 0) begin
                     collector_units_n[cu_to_allocate].rs3_ready = 1;
                     collector_units_n[cu_to_allocate].rs3_data = '0;
-                    //collector_units_n[cu_to_allocate].rs3_from_rf = 0;
                 end
 
                 ibuffer_ready_n = 1;
@@ -179,14 +192,14 @@ module VX_operands import VX_gpu_pkg::*; #(
             end
 
 
-            /* verilator lint_off UNSIGNED */
-            for (logic[cu_lt_bits-1:0] j = 0; j < CU_RATIO; j++) begin
+            for (integer j = 0; j < CU_RATIO; j++) begin
                 empty_cus[j[CU_WIS_W-1:0]] = ~(collector_units[j[CU_WIS_W-1:0]].allocated);
             end
 
 
-            for (logic[cu_lt_bits-1:0] j = 0; j < CU_RATIO; j++) begin
-                if (collector_units[j[CU_WIS_W-1:0]].allocated && (collector_units[j[CU_WIS_W-1:0]].rs1_from_rf && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) || collector_units[j[CU_WIS_W-1:0]].rs2_from_rf && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0 || collector_units[j[CU_WIS_W-1:0]].rs3_from_rf && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
+            for (integer j = 0; j < CU_RATIO; j++) begin
+                if (collector_units[j[CU_WIS_W-1:0]].allocated && (collector_units[j[CU_WIS_W-1:0]].rs1_from_rf && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) || 
+                    collector_units[j[CU_WIS_W-1:0]].rs2_from_rf && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0 || collector_units[j[CU_WIS_W-1:0]].rs3_from_rf && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
                     reading_cus[j[CU_WIS_W-1:0]] = 1;
                 end else begin
                     reading_cus[j[CU_WIS_W-1:0]] = 0;                        
@@ -195,40 +208,61 @@ module VX_operands import VX_gpu_pkg::*; #(
            
 
             if (writeback_if[i].valid) begin
-                for (logic[cu_lt_bits-1:0] j = 0; j < CU_RATIO; j++) begin
+                for (integer j = 0; j < CU_RATIO; j++) begin
                     if (collector_units[j[CU_WIS_W-1:0]].allocated && collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==0 && (collector_units[j[CU_WIS_W-1:0]].rs1_source == writeback_if[i].data.cu_id) && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
-                        if (j[CU_WIS_W-1:0] != cu_to_check_rat || check_rat==0) begin
+                        if ((j[CU_WIS_W-1:0] != cu_to_check_rat) || check_rat==0) begin
                             for (integer k = 0; k < `NUM_THREADS; k++) begin
                                 if (writeback_if[i].data.tmask[k]) begin
                                     collector_units_n[j[CU_WIS_W-1:0]].rs1_data[k] = writeback_if[i].data.data[k];
                                 end
                             end
                             if (writeback_if[i].data.eop) begin
-                                collector_units_n[j[CU_WIS_W-1:0]].rs1_ready= 1;
+                                if (writeback_if[i].data.sop || collector_units[j[CU_WIS_W-1:0]].rs1_found_sop) begin
+                                    collector_units_n[j[CU_WIS_W-1:0]].rs1_ready = 1;
+                                end else begin
+                                    collector_units_n[j[CU_WIS_W-1:0]].rs1_from_rf = 1;
+                                end
+                            end
+                            if (writeback_if[i].data.sop) begin
+                                collector_units_n[j[CU_WIS_W-1:0]].rs1_found_sop = 1;
                             end
                         end
                     end
                     if (collector_units[j[CU_WIS_W-1:0]].allocated && collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==0 && (collector_units[j[CU_WIS_W-1:0]].rs2_source == writeback_if[i].data.cu_id) && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
-                        if (j[CU_WIS_W-1:0] != cu_to_check_rat || check_rat==0) begin
+                        if ((j[CU_WIS_W-1:0] != cu_to_check_rat) || check_rat==0) begin
                             for (integer k = 0; k < `NUM_THREADS; k++) begin
                                 if (writeback_if[i].data.tmask[k]) begin
                                     collector_units_n[j[CU_WIS_W-1:0]].rs2_data[k] = writeback_if[i].data.data[k];
                                 end
                             end
                             if (writeback_if[i].data.eop) begin
-                                collector_units_n[j[CU_WIS_W-1:0]].rs2_ready = 1;
+                                if (writeback_if[i].data.sop || collector_units[j[CU_WIS_W-1:0]].rs2_found_sop) begin
+                                    collector_units_n[j[CU_WIS_W-1:0]].rs2_ready = 1;
+                                end else begin
+                                    collector_units_n[j[CU_WIS_W-1:0]].rs2_from_rf = 1;
+                                end
+                            end
+                            if (writeback_if[i].data.sop) begin
+                                collector_units_n[j[CU_WIS_W-1:0]].rs2_found_sop = 1;
                             end
                         end
                     end 
                     if (collector_units[j[CU_WIS_W-1:0]].allocated && collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==0 && (collector_units[j[CU_WIS_W-1:0]].rs3_source == writeback_if[i].data.cu_id) && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
-                        if (j[CU_WIS_W-1:0] != cu_to_check_rat || check_rat==0) begin
+                        if ((j[CU_WIS_W-1:0] != cu_to_check_rat) || check_rat==0) begin
                             for (integer k = 0; k < `NUM_THREADS; k++) begin
                                 if (writeback_if[i].data.tmask[k]) begin
                                     collector_units_n[j[CU_WIS_W-1:0]].rs3_data[k] = writeback_if[i].data.data[k];
                                 end
                             end
                             if (writeback_if[i].data.eop) begin
-                                collector_units_n[j[CU_WIS_W-1:0]].rs3_ready = 1;
+                                if (writeback_if[i].data.sop || collector_units[j[CU_WIS_W-1:0]].rs3_found_sop) begin
+                                    collector_units_n[j[CU_WIS_W-1:0]].rs3_ready = 1;
+                                end else begin
+                                    collector_units_n[j[CU_WIS_W-1:0]].rs3_from_rf = 1;
+                                end
+                            end
+                            if (writeback_if[i].data.sop) begin
+                                collector_units_n[j[CU_WIS_W-1:0]].rs3_found_sop = 1;
                             end
                         end
                     end
@@ -240,58 +274,46 @@ module VX_operands import VX_gpu_pkg::*; #(
             end 
 
 
-            for (logic[cu_lt_bits-1:0] j = 0; j < CU_RATIO; j++) begin
+            for (integer j = 0; j < CU_RATIO; j++) begin
                 if (collector_units[j[CU_WIS_W-1:0]].allocated && (collector_units[j[CU_WIS_W-1:0]].dispatched == 0) && collector_units[j[CU_WIS_W-1:0]].rs1_ready && collector_units[j[CU_WIS_W-1:0]].rs2_ready && collector_units[j[CU_WIS_W-1:0]].rs3_ready) begin
                     
                     ready_cus[j[CU_WIS_W-1:0]] = 1;
 
                     if (collector_units[j[CU_WIS_W-1:0]].data.ex_type == `EX_LSU) begin 
-                        for (logic[cu_lt_bits-1:0] k = 0; k < CU_RATIO; k++) begin
-                            if (collector_units[k[CU_WIS_W-1:0]].dispatched==0 && collector_units[k[CU_WIS_W-1:0]].allocated && collector_units[k[CU_WIS_W-1:0]].data.wis == collector_units[j[CU_WIS_W-1:0]].data.wis && collector_units[k[CU_WIS_W-1:0]].data.ex_type == `EX_LSU && collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) begin
+                        for (integer k = 0; k < CU_RATIO; k++) begin
+                            if (collector_units[k[CU_WIS_W-1:0]].dispatched==0 && collector_units[k[CU_WIS_W-1:0]].allocated && collector_units[k[CU_WIS_W-1:0]].data.wis == collector_units[j[CU_WIS_W-1:0]].data.wis && 
+                                collector_units[k[CU_WIS_W-1:0]].data.ex_type == `EX_LSU && collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) begin
                                 ready_cus[j[CU_WIS_W-1:0]] = 0;
                             end
                         end 
                     end
-
+                    for (integer k = 0; k < CU_RATIO; k++) begin
+                        if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
+                            collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid && 
+                            ((collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs1 && collector_units[k[CU_WIS_W-1:0]].rs1_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs1_ready==0) ||
+                            (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs2 && collector_units[k[CU_WIS_W-1:0]].rs2_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs2_ready==0) ||
+                            (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs3 && collector_units[k[CU_WIS_W-1:0]].rs3_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs3_ready==0))) begin
+                            ready_cus[j[CU_WIS_W-1:0]] = 0;
+                        end
+                    end
                 end else begin
                     ready_cus[j[CU_WIS_W-1:0]] = 0;
                 end
             end
 
-            for (logic[cu_lt_bits-1:0] j = 0; j < CU_RATIO; j++) begin
-                if (collector_units[j[CU_WIS_W-1:0]].dispatched && (collector_units[j[CU_WIS_W-1:0]].data.wb == 0)) begin
-                    collector_units_n[j[CU_WIS_W-1:0]].allocated = 0;
-                    collector_units_n[j[CU_WIS_W-1:0]].rs1_ready = 0;
-                    collector_units_n[j[CU_WIS_W-1:0]].rs2_ready = 0;
-                    collector_units_n[j[CU_WIS_W-1:0]].rs3_ready = 0;
-                    collector_units_n[j[CU_WIS_W-1:0]].rs1_from_rf = 0;
-                    collector_units_n[j[CU_WIS_W-1:0]].rs2_from_rf = 0;
-                    collector_units_n[j[CU_WIS_W-1:0]].rs3_from_rf = 0;
-                    collector_units_n[j[CU_WIS_W-1:0]].dispatched = 0;
-                end
-            end 
-            /* verilator lint_on UNSIGNED */
 
-
-            if (stg_ready_in && dispatch_cu_valid) begin
+            if (stg_valid_in) begin
                 for (integer k = 0; k < `NUM_THREADS; k++) begin
                     operands_if[i].data.rs1_data[k] = collector_units[cu_to_dispatch].rs1_data[k];
                     operands_if[i].data.rs2_data[k] = collector_units[cu_to_dispatch].rs2_data[k];
                     operands_if[i].data.rs3_data[k] = collector_units[cu_to_dispatch].rs3_data[k];
                 end
                 operands_if[i].data.cu_id = cu_to_dispatch;
-//                if (collector_units[cu_to_dispatch].data.wb == 0) begin
-//                    collector_units_n[cu_to_dispatch].allocated = 0;
-//                    collector_units_n[cu_to_dispatch].rs1_ready = 0;
-//                    collector_units_n[cu_to_dispatch].rs2_ready = 0;
-//                    collector_units_n[cu_to_dispatch].rs3_ready = 0;
-//                    collector_units_n[cu_to_dispatch].rs1_from_rf = 0;
-//                    collector_units_n[cu_to_dispatch].rs2_from_rf = 0;
-//                    collector_units_n[cu_to_dispatch].rs3_from_rf = 0;
-//                    collector_units_n[cu_to_dispatch].dispatched = 0;
-//                end else begin
-                    collector_units_n[cu_to_dispatch].dispatched = 1;
-//                end
+                if (collector_units[cu_to_dispatch].data.wb == 0) begin
+                    cu_to_dealloc_wb_n = cu_to_dispatch;
+                    dealloc_wb_n = 1;
+                end
+                collector_units_n[cu_to_dispatch].dispatched = 1;
             end else begin
                 for (integer k = 0; k < `NUM_THREADS; k++) begin
                     operands_if[i].data.rs1_data[k] = operands_if[i].data.rs1_data[k];
@@ -302,7 +324,7 @@ module VX_operands import VX_gpu_pkg::*; #(
 
 
             // new cu to read rf
-            if (state == 0) begin
+            if (state==0) begin
                 cu_to_read_rf_n = cu_to_read_rf_out;
                 read_cu_valid_n = read_cu_valid_out;
                 gpr_rd_wis_n = collector_units[cu_to_read_rf_out].data.wis;
@@ -332,17 +354,26 @@ module VX_operands import VX_gpu_pkg::*; #(
                 for (integer j = 0; j < `NUM_THREADS; j++) begin
                     collector_units_n[cu_to_read_rf].rs1_data[j] = gpr_rd_data[j];
                 end
-                collector_units_n[cu_to_read_rf].rs1_ready = 1;
+                rs1_ready_n = 1;
+                if (rs1_ready) begin 
+                    collector_units_n[cu_to_read_rf].rs1_ready = 1;
+                end
             end else if (state == 2) begin
                 for (integer j = 0; j < `NUM_THREADS; j++) begin
                     collector_units_n[cu_to_read_rf].rs2_data[j] = gpr_rd_data[j];
                 end
-                collector_units_n[cu_to_read_rf].rs2_ready = 1;
+                rs2_ready_n = 1;
+                if (rs2_ready) begin 
+                    collector_units_n[cu_to_read_rf].rs2_ready = 1;
+                end
             end else if (state == 3) begin
                 for (integer j = 0; j < `NUM_THREADS; j++) begin
                     collector_units_n[cu_to_read_rf].rs3_data[j] = gpr_rd_data[j];
                 end
-                collector_units_n[cu_to_read_rf].rs3_ready = 1;
+                rs3_ready_n = 1;
+                if (rs3_ready) begin 
+                    collector_units_n[cu_to_read_rf].rs3_ready = 1;
+                end
             end
 
 
@@ -358,49 +389,82 @@ module VX_operands import VX_gpu_pkg::*; #(
 
             if (check_rat) begin  
                 if (collector_units[cu_to_check_rat].data.rs1 != 0) begin
-                    if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf==0 && (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id == writeback_if[i].data.cu_id)) begin
+                    if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf==0 && 
+                        (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id == writeback_if[i].data.cu_id)) begin
                         for (integer j = 0; j < `NUM_THREADS; j++) begin
                             if (writeback_if[i].data.tmask[j]) begin
                                 collector_units_n[cu_to_check_rat].rs1_data[j] = writeback_if[i].data.data[j];
                             end
                         end
+                        if (writeback_if[i].data.sop) begin
+                            collector_units_n[cu_to_check_rat].rs1_found_sop = 1;
+                        end
                         if (writeback_if[i].data.eop) begin
-                            collector_units_n[cu_to_check_rat].rs1_ready = 1;
+                            if (writeback_if[i].data.sop) begin
+                                collector_units_n[cu_to_check_rat].rs1_ready = 1;
+                                collector_units_n[cu_to_check_rat].rs1_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf;
+                            end else begin
+                                collector_units_n[cu_to_check_rat].rs1_from_rf = 1;
+                            end
+                        end else begin
+                            collector_units_n[cu_to_check_rat].rs1_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf;
                         end
                     end else begin
                         collector_units_n[cu_to_check_rat].rs1_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf;
-                        collector_units_n[cu_to_check_rat].rs1_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id;
                     end
+                    collector_units_n[cu_to_check_rat].rs1_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id;                   
                 end
                 if (collector_units[cu_to_check_rat].data.rs2 != 0) begin
-                    if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf==0 && (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id == writeback_if[i].data.cu_id)) begin
+                    if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf==0 && 
+                    (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id == writeback_if[i].data.cu_id)) begin
                         for (integer j = 0; j < `NUM_THREADS; j++) begin
                             if (writeback_if[i].data.tmask[j]) begin
                                 collector_units_n[cu_to_check_rat].rs2_data[j] = writeback_if[i].data.data[j];
                             end
                         end
+                        if (writeback_if[i].data.sop) begin
+                            collector_units_n[cu_to_check_rat].rs2_found_sop = 1;
+                        end
                         if (writeback_if[i].data.eop) begin
-                            collector_units_n[cu_to_check_rat].rs2_ready = 1;
+                            if (writeback_if[i].data.sop) begin
+                                collector_units_n[cu_to_check_rat].rs2_ready = 1;
+                                collector_units_n[cu_to_check_rat].rs2_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf;
+                            end else begin
+                                collector_units_n[cu_to_check_rat].rs2_from_rf = 1;
+                            end
+                        end else begin
+                            collector_units_n[cu_to_check_rat].rs2_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf;
                         end
                     end else begin
                         collector_units_n[cu_to_check_rat].rs2_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf;
-                        collector_units_n[cu_to_check_rat].rs2_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id;
                     end
+                    collector_units_n[cu_to_check_rat].rs2_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id;
                 end
                 if (collector_units[cu_to_check_rat].data.rs3 != 0) begin
-                    if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf==0 && (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id == writeback_if[i].data.cu_id)) begin
+                    if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf==0 && 
+                        (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id == writeback_if[i].data.cu_id)) begin
                         for (integer j = 0; j < `NUM_THREADS; j++) begin
                             if (writeback_if[i].data.tmask[j]) begin
                                 collector_units_n[cu_to_check_rat].rs3_data[j] = writeback_if[i].data.data[j];
                             end
                         end
+                        if (writeback_if[i].data.sop) begin
+                            collector_units_n[cu_to_check_rat].rs3_found_sop = 1;
+                        end
                         if (writeback_if[i].data.eop) begin
-                            collector_units_n[cu_to_check_rat].rs3_ready = 1;
+                            if (writeback_if[i].data.sop) begin
+                                collector_units_n[cu_to_check_rat].rs3_ready = 1;
+                                collector_units_n[cu_to_check_rat].rs3_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf;
+                            end else begin
+                                collector_units_n[cu_to_check_rat].rs3_from_rf = 1;
+                            end
+                        end else begin
+                            collector_units_n[cu_to_check_rat].rs3_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf;
                         end
                     end else begin
                         collector_units_n[cu_to_check_rat].rs3_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf;
-                        collector_units_n[cu_to_check_rat].rs3_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id;
                     end
+                    collector_units_n[cu_to_check_rat].rs3_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id;
                 end
                 if (collector_units[cu_to_check_rat].data.wb) begin
                     reg_alias_table_n[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rd].from_rf = 1'b0;
@@ -420,8 +484,25 @@ module VX_operands import VX_gpu_pkg::*; #(
                 collector_units_n[cu_to_deallocate].rs3_from_rf = 0;
                 collector_units_n[cu_to_deallocate].dispatched = 0;
                 collector_units_n[cu_to_deallocate].data.wb = 0;
+                collector_units_n[cu_to_deallocate].rs1_found_sop = 0;
+                collector_units_n[cu_to_deallocate].rs2_found_sop = 0;
+                collector_units_n[cu_to_deallocate].rs3_found_sop = 0;
             end 
 
+            if (dealloc_wb) begin
+                collector_units_n[cu_to_dealloc_wb].allocated = 0;
+                collector_units_n[cu_to_dealloc_wb].rs1_ready = 0;
+                collector_units_n[cu_to_dealloc_wb].rs2_ready = 0;
+                collector_units_n[cu_to_dealloc_wb].rs3_ready = 0;
+                collector_units_n[cu_to_dealloc_wb].rs1_from_rf = 0;
+                collector_units_n[cu_to_dealloc_wb].rs2_from_rf = 0;
+                collector_units_n[cu_to_dealloc_wb].rs3_from_rf = 0;
+                collector_units_n[cu_to_dealloc_wb].dispatched = 0;
+                collector_units_n[cu_to_dealloc_wb].data.wb = 0;
+                collector_units_n[cu_to_dealloc_wb].rs1_found_sop = 0;
+                collector_units_n[cu_to_dealloc_wb].rs2_found_sop = 0;
+                collector_units_n[cu_to_dealloc_wb].rs3_found_sop = 0;
+            end
 
             if (CACHE_ENABLE != 0 && writeback_if[i].valid) begin
                 if ((cache_reg[writeback_if[i].data.wis] == writeback_if[i].data.rd) 
@@ -478,11 +559,15 @@ module VX_operands import VX_gpu_pkg::*; #(
                 ibuffer_ready <= 1'b1;
                 check_rat <= 1'b0;
                 deallocate <= 1'b0;
+                dealloc_wb <= 1'b0;
                 state <= 2'b0;
                 previous_uuid <= -1;
                 read_cu_valid <= 1'b0;
+                rs1_ready <= 1'b0;
+                rs2_ready <= 1'b0;
+                rs3_ready <= 1'b0;
                 /* verilator lint_off UNSIGNED */
-                for (logic[cu_lt_bits-1:0] k = 0; k < CU_RATIO; k = k + 1) begin
+                for (integer k = 0; k < CU_RATIO; k = k + 1) begin
                     collector_units[k[CU_WIS_W-1:0]].allocated <= 1'b0;
                     collector_units[k[CU_WIS_W-1:0]].rs1_ready <= 1'b0;
                     collector_units[k[CU_WIS_W-1:0]].rs2_ready <= 1'b0;
@@ -494,6 +579,9 @@ module VX_operands import VX_gpu_pkg::*; #(
                     collector_units[k[CU_WIS_W-1:0]].rs1_source <= 0;
                     collector_units[k[CU_WIS_W-1:0]].rs2_source <= 0;
                     collector_units[k[CU_WIS_W-1:0]].rs3_source <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].rs1_found_sop <= 1'b0;
+                    collector_units[k[CU_WIS_W-1:0]].rs2_found_sop <= 1'b0;
+                    collector_units[k[CU_WIS_W-1:0]].rs3_found_sop <= 1'b0;
                 end
                 /* verilator lint_on UNSIGNED */
                 for (integer k = 0; k < `UP(ISSUE_RATIO); k = k + 1) begin
@@ -505,10 +593,14 @@ module VX_operands import VX_gpu_pkg::*; #(
                 cache_eop   <= cache_eop_n;
                 check_rat <= check_rat_n;
                 deallocate <= deallocate_n;
+                dealloc_wb <= dealloc_wb_n;
                 read_cu_valid <= read_cu_valid_n;
                 state <= state_n;
                 ibuffer_ready <= ibuffer_ready_n;
                 previous_uuid <= previous_uuid_n;
+                rs1_ready <= rs1_ready_n;
+                rs2_ready <= rs2_ready_n;
+                rs3_ready <= rs3_ready_n;
             end
             gpr_rd_rid  <= gpr_rd_rid_n;
             gpr_rd_wis  <= gpr_rd_wis_n;        
@@ -518,149 +610,230 @@ module VX_operands import VX_gpu_pkg::*; #(
             cu_to_check_rat <= cu_to_check_rat_n;
             cu_to_read_rf <= cu_to_read_rf_n;
             cu_to_deallocate <= cu_to_deallocate_n;
+            cu_to_dealloc_wb <= cu_to_dealloc_wb_n;
         end 
         
         always @(posedge clk)  begin
-        `ifdef DBG_TRACE_CORE_PIPELINE
+        `ifdef DBG_TRACE_LOOG_PIPELINE
             if (ibuffer_if[i].valid) begin
-                $display("");
-                $display("%d: ibuffer valid (PC=0x%h wis=%d)", $time, ibuffer_if[i].data.PC, ibuffer_if[i].data.wis);
-                $display("%d: empty cus : %b\n", $time, empty_cus);
+                `TRACE(1, ("\n"));
+                `TRACE(1, ("%d: i=%d ibuffer valid (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  ibuffer_if[i].data.PC, wis_to_wid(ibuffer_if[i].data.wis, i[ISSUE_ISW_W-1:0])));
+                `TRACE(1, ("%d: i=%d empty cus : %b\n\n", $time, i[ISSUE_ISW_W-1:0],  empty_cus));
             end
 
             if (collector_units_n[cu_to_allocate].allocated && allocate_cu_valid) begin
-                $display("%d: allocating cu %d (PC=0x%h wis=%d)", $time, cu_to_allocate, collector_units_n[cu_to_allocate].data.PC, collector_units_n[cu_to_allocate].data.wis);
-                $display("%d: ibuffer ready : %b\n", $time, ibuffer_ready);
+                `TRACE(1, ("%d: i=%d allocating cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_allocate, collector_units_n[cu_to_allocate].data.PC, wis_to_wid(collector_units_n[cu_to_allocate].data.wis, i[ISSUE_ISW_W-1:0])));
+                `TRACE(1, ("%d: i=%d ibuffer ready : %b\n\n", $time, i[ISSUE_ISW_W-1:0],  ibuffer_ready));
             end
 
             if (check_rat) begin
-                $display("%d: checking rat for cu %d (PC=0x%h wis=%d)", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis);
+                `TRACE(1, ("%d: i=%d checking rat for cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
                 if (collector_units[cu_to_check_rat].data.rs1 != 0) begin
                     if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf==0 && (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id == writeback_if[i].data.cu_id)) begin
-                        $display("%d: cu %d (PC=0x%h wis=%d) caught rs1 data = 0x%h from cu %d (PC=0x%h wis=%d)", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis, writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, collector_units[writeback_if[i].data.cu_id].data.wis);
+                        `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs1 data = 0x%h from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
+                        if (writeback_if[i].data.sop) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 found sop\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                        end
                         if (writeback_if[i].data.eop) begin
-                            $display("%d: cu %d (PC=0x%h wis=%d) rs1 is ready", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis);
+                            if (writeback_if[i].data.sop) begin
+                                `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 is ready\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                            end else begin
+                                `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 to be read from RF - no sop found\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                            end
                         end else begin
-                            $display("%d: cu %d (PC=0x%h wis=%d) rs1 is not ready yet", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis);
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 is not ready yet\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
                         end
                     end else begin
                         if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf) begin
-                            $display("%d: rs1 to be read from RF", $time);
+                            `TRACE(1, ("%d: i=%d rs1 to be read from RF\n", $time, i[ISSUE_ISW_W-1:0]));
                         end else begin
-                            $display("%d: rs1 to be read from cu %d (PC=0x%h wis=%d)", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id].data.PC, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id].data.wis);
+                            `TRACE(1, ("%d: i=%d rs1 to be read from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id].data.PC, wis_to_wid(collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
                         end
                     end
                 end
                 if (collector_units[cu_to_check_rat].data.rs2 != 0) begin
                     if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf==0 && (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id == writeback_if[i].data.cu_id)) begin
-                        $display("%d: cu %d (PC=0x%h wis=%d) caught rs2 data = 0x%h from cu %d (PC=0x%h wis=%d)", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis, writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, collector_units[writeback_if[i].data.cu_id].data.wis);
+                        `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs2 data = 0x%h from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
+                        if (writeback_if[i].data.sop) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 found sop\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                        end
                         if (writeback_if[i].data.eop) begin
-                            $display("%d: cu %d (PC=0x%h wis=%d) rs2 is ready", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis);
+                            if (writeback_if[i].data.sop) begin
+                                `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 is ready\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                            end else begin
+                                `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 to be read from RF - no sop found\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                            end
                         end else begin
-                            $display("%d: cu %d (PC=0x%h wis=%d) rs2 is not ready yet", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis);
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 is not ready yet\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
                         end
                     end else begin
                         if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf) begin
-                            $display("%d: rs2 to be read from RF", $time);
+                            `TRACE(1, ("%d: i=%d rs2 to be read from RF\n", $time, i[ISSUE_ISW_W-1:0]));
                         end else begin
-                            $display("%d: rs2 to be read from cu %d (PC=0x%h wis=%d)", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id].data.PC, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id].data.wis);
+                            `TRACE(1, ("%d: i=%d rs2 to be read from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id].data.PC, wis_to_wid(collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
                         end
                     end
                 end
                 if (collector_units[cu_to_check_rat].data.rs3 != 0) begin
                     if (writeback_if[i].valid && reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf==0 && (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id == writeback_if[i].data.cu_id)) begin
-                        $display("%d: cu %d (PC=0x%h wis=%d) caught rs3 data = 0x%h from cu %d (PC=0x%h wis=%d)", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis, writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, collector_units[writeback_if[i].data.cu_id].data.wis);
+                        `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs3 data = 0x%h from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
+                        if (writeback_if[i].data.sop) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs3 found sop\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                        end
                         if (writeback_if[i].data.eop) begin
-                            $display("%d: cu %d (PC=0x%h wis=%d) rs3 is ready", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis);
+                            if (writeback_if[i].data.sop) begin
+                                `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs3 is ready\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                            end else begin
+                                `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs3 to be read from RF - no sop found\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
+                            end
                         end else begin
-                            $display("%d: cu %d (PC=0x%h wis=%d) rs3 is not ready yet", $time, cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, collector_units[cu_to_check_rat].data.wis);
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs3 is not ready yet\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_check_rat, collector_units[cu_to_check_rat].data.PC, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
                         end
                     end else begin
                         if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf) begin
-                            $display("%d: rs3 to be read from RF", $time);
+                            `TRACE(1, ("%d: i=%d rs3 to be read from RF\n", $time, i[ISSUE_ISW_W-1:0]));
                         end else begin
-                            $display("%d: rs3 to be read from cu %d (PC=0x%h wis=%d)", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id].data.PC, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id].data.wis);
+                            `TRACE(1, ("%d: i=%d rs3 to be read from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id, collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id].data.PC, wis_to_wid(collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
                         end
                     end
                 end
                 if (collector_units[cu_to_check_rat].data.wb != 0) begin
-                    $display("%d: wis=%d reg=%d from_rf is now %d", $time, collector_units[cu_to_check_rat].data.wis, collector_units[cu_to_check_rat].data.rd, reg_alias_table_n[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf);
+                    `TRACE(1, ("%d: i=%d wis=%d reg=%d from_rf is now %d\n", $time, i[ISSUE_ISW_W-1:0],  collector_units[cu_to_check_rat].data.wis, collector_units[cu_to_check_rat].data.rd, reg_alias_table_n[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf));
                 end else begin
-                    $display("%d: no writeback", $time);
+                    `TRACE(1, ("%d: i=%d no writeback\n", $time, i[ISSUE_ISW_W-1:0]));
                 end
-                $display("");
+                `TRACE(1, ("\n"));
             end
-        `endif
-        end
 
-        always @(posedge clk)  begin
-        `ifdef DBG_TRACE_CORE_PIPELINE
             if (read_cu_valid) begin
-                $display("%d: reading cus: %b", $time, reading_cus);
+                `TRACE(1, ("%d: i=%d reading cus: %b\n", $time, i[ISSUE_ISW_W-1:0],  reading_cus));
                 if (collector_units[cu_to_read_rf].rs1_from_rf && ~(collector_units[cu_to_read_rf].rs1_ready)) begin
-                    $display("%d: reading cu %d (PC=0x%h wis=%d) rs1 from RF, state = %d", $time, cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, collector_units[cu_to_read_rf].data.wis, state_n);
+                    `TRACE(1, ("%d: i=%d reading cu %d (PC=0x%h wid=%d) rs1 from RF, state = %d\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), state_n));
                 end else if (collector_units[cu_to_read_rf].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
-                    $display("%d: reading cu %d (PC=0x%h wis=%d) rs2 from RF, state = %d", $time, cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, collector_units[cu_to_read_rf].data.wis, state_n);
+                    `TRACE(1, ("%d: i=%d reading cu %d (PC=0x%h wid=%d) rs2 from RF, state = %d\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), state_n));
                 end else if (collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
-                    $display("%d: reading cu %d (PC=0x%h wis=%d) rs3 from RF, state = %d", $time, cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, collector_units[cu_to_read_rf].data.wis, state_n);
+                    `TRACE(1, ("%d: i=%d reading cu %d (PC=0x%h wid=%d) rs3 from RF, state = %d\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), state_n));
                 end
-                $display(" ");
+                `TRACE(1, ("\n"));
             end
 
-            if (state_n==1) begin
-                $display("%d: read data from RF for cu %d (PC=0x%h wis=%d) rs1 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h)\n", $time, cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, collector_units_n[cu_to_read_rf].data.wis, gpr_rd_data, collector_units_n[cu_to_read_rf].rs1_data, collector_units[cu_to_read_rf].data.rs1, gpr_rd_rid, gpr_rd_addr);
-            end else if (state_n==2) begin
-                $display("%d: read data from RF for cu %d (PC=0x%h wis=%d) rs2 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h))\n", $time, cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, collector_units_n[cu_to_read_rf].data.wis, gpr_rd_data, collector_units_n[cu_to_read_rf].rs2_data, collector_units[cu_to_read_rf].data.rs2, gpr_rd_rid, gpr_rd_addr);
-            end else if (state_n==3) begin
-                $display("%d: read data from RF for cu %d (PC=0x%h wis=%d) rs3 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h))\n", $time, cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, collector_units_n[cu_to_read_rf].data.wis, gpr_rd_data, collector_units_n[cu_to_read_rf].rs3_data, collector_units[cu_to_read_rf].data.rs3, gpr_rd_rid, gpr_rd_addr);
+            if (state==1) begin
+                `TRACE(1, ("%d: i=%d read data from RF for cu %d (PC=0x%h wid=%d) rs1 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h)\n\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, wis_to_wid(collector_units_n[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), gpr_rd_data, collector_units_n[cu_to_read_rf].rs1_data, collector_units[cu_to_read_rf].data.rs1, gpr_rd_rid, gpr_rd_addr));
+            end else if (state==2) begin
+                `TRACE(1, ("%d: i=%d read data from RF for cu %d (PC=0x%h wid=%d) rs2 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h))\n\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, wis_to_wid(collector_units_n[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), gpr_rd_data, collector_units_n[cu_to_read_rf].rs2_data, collector_units[cu_to_read_rf].data.rs2, gpr_rd_rid, gpr_rd_addr));
+            end else if (state==3) begin
+                `TRACE(1, ("%d: i=%d read data from RF for cu %d (PC=0x%h wid=%d) rs3 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h))\n\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, collector_units[cu_to_read_rf].data.PC, wis_to_wid(collector_units_n[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), gpr_rd_data, collector_units_n[cu_to_read_rf].rs3_data, collector_units[cu_to_read_rf].data.rs3, gpr_rd_rid, gpr_rd_addr));
             end 
 
 
             if (stg_valid_in) begin
-                `TRACE(1, ("%d: dispatching pt.1 cu %d (PC=0x%h wis=%d) ex=", $time, cu_to_dispatch, collector_units_n[cu_to_dispatch].data.PC, collector_units_n[cu_to_dispatch].data.wis));
+                `TRACE(1, ("%d: i=%d dispatching pt.1 cu %d (PC=0x%h wid=%d) ex=", $time, i[ISSUE_ISW_W-1:0],  cu_to_dispatch, collector_units_n[cu_to_dispatch].data.PC, wis_to_wid(collector_units_n[cu_to_dispatch].data.wis, i[ISSUE_ISW_W-1:0])));
                 trace_ex_type(1, collector_units_n[cu_to_dispatch].data.ex_type);
-                $display("");
-                $display("%d: operands rs1 : 0x%h, rs2 : 0x%h, rs3 : 0x%h", $time, operands_if[i].data.rs1_data, operands_if[i].data.rs2_data, operands_if[i].data.rs3_data);
+                `TRACE(1, ("\n"));
+                `TRACE(1, ("%d: i=%d operands rs1 : 0x%h, rs2 : 0x%h, rs3 : 0x%h\n", $time, i[ISSUE_ISW_W-1:0],  operands_if[i].data.rs1_data, operands_if[i].data.rs2_data, operands_if[i].data.rs3_data));
             end
             if (stg_ready_in && dispatch_cu_valid) begin
-                $display("%d: dispatching pt.2 cu %d (PC=0x%h wis=%d)", $time, cu_to_dispatch, collector_units_n[cu_to_dispatch].data.PC, collector_units_n[cu_to_dispatch].data.wis);
-                if (collector_units[cu_to_dispatch].data.wb == 0) begin
-                    $display("%d: deallocating cu %d (PC=0x%h wis=%d) because of wb=0", $time, cu_to_dispatch, collector_units_n[cu_to_dispatch].data.PC, collector_units_n[cu_to_dispatch].data.wis);
-                    $display("%d: rs1_ready=%d, rs2_ready=%d, rs3_ready=%d, dispatched=%d\n", $time, collector_units_n[cu_to_dispatch].rs1_ready, collector_units_n[cu_to_dispatch].rs2_ready, collector_units_n[cu_to_dispatch].rs3_ready, collector_units_n[cu_to_dispatch].dispatched);
-                end
-                $display("");
+                `TRACE(1, ("%d: i=%d dispatching pt.2 cu %d (PC=0x%h wid=%d)\n\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_dispatch, collector_units_n[cu_to_dispatch].data.PC, wis_to_wid(collector_units_n[cu_to_dispatch].data.wis, i[ISSUE_ISW_W-1:0])));
             end
             if (writeback_if[i].valid) begin
-                $display("%d: writeback valid for cu %d (PC=0x%h wis=%d), data : 0x%h", $time, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, collector_units[writeback_if[i].data.cu_id].data.wis, writeback_if[i].data.data);
+                `TRACE(1, ("%d: i=%d writeback valid for cu %d (PC=0x%h wid=%d), data : 0x%h\n", $time, i[ISSUE_ISW_W-1:0],  writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data));
                 if (reg_alias_table[collector_units[writeback_if[i].data.cu_id].data.wis][collector_units[writeback_if[i].data.cu_id].data.rd].cu_id == writeback_if[i].data.cu_id) begin
                     if (writeback_if[i].data.eop) begin
-                        $display("%d: wis=%d reg=%d from_rf is now %d", $time, collector_units[writeback_if[i].data.cu_id].data.wis, collector_units[writeback_if[i].data.cu_id].data.rd, reg_alias_table_n[collector_units[writeback_if[i].data.cu_id].data.wis][collector_units[writeback_if[i].data.cu_id].data.rd].from_rf);
+                        `TRACE(1, ("%d: i=%d wis=%d reg=%d from_rf is now %d\n", $time, i[ISSUE_ISW_W-1:0],  collector_units[writeback_if[i].data.cu_id].data.wis, collector_units[writeback_if[i].data.cu_id].data.rd, reg_alias_table_n[collector_units[writeback_if[i].data.cu_id].data.wis][collector_units[writeback_if[i].data.cu_id].data.rd].from_rf));
                     end
-                    $display("%d: writeback to RF for cu %d (PC=0x%h wis=%d) rd : 0x%h, data : 0x%h\n", $time, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, collector_units[writeback_if[i].data.cu_id].data.wis, collector_units[writeback_if[i].data.cu_id].data.rd, writeback_if[i].data.data);
+                    `TRACE(1, ("%d: i=%d writeback to RF for cu %d (PC=0x%h wid=%d) rd : %d, data : 0x%h\n\n", $time, i[ISSUE_ISW_W-1:0],  writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[writeback_if[i].data.cu_id].data.rd, writeback_if[i].data.data));
                 end
             end
+            if (writeback_if[i].valid) begin
+            `TRACE(1, ("%d: i=%d writeback valid for cu %d (PC=0x%h wid=%d), data : 0x%h\n", $time, i[ISSUE_ISW_W-1:0],  writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data));
+                for (integer j = 0; j < CU_RATIO; j++) begin
+                    //`TRACE(1, ("%d: i=%d collector_units[%d].allocated=%d, collector_units[%d].rs1_from_rf=%d, collector_units[%d].rs1_source=%d, collector_units[%d].rs1_ready=%d\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units[j[CU_WIS_W-1:0]].allocated, j[CU_WIS_W-1:0], collector_units[j[CU_WIS_W-1:0]].rs1_from_rf, j[CU_WIS_W-1:0], collector_units[j[CU_WIS_W-1:0]].rs1_source, j[CU_WIS_W-1:0], collector_units[j[CU_WIS_W-1:0]].rs1_ready));
+                    if (collector_units[j[CU_WIS_W-1:0]].allocated && collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==0 && (collector_units[j[CU_WIS_W-1:0]].rs1_source == writeback_if[i].data.cu_id) && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
+                        if ((j[CU_WIS_W-1:0] != cu_to_check_rat) || check_rat==0) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs1 data = 0x%h from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
+                            `TRACE(1, ("%d: i=%d wb eop=%d, wb sop=%d, cu rs1_found_sop=%d\n", $time, i[ISSUE_ISW_W-1:0],  writeback_if[i].data.eop, writeback_if[i].data.sop, collector_units[j[CU_WIS_W-1:0]].rs1_found_sop));
+                            if (writeback_if[i].data.eop) begin
+                                if (writeback_if[i].data.sop || collector_units[j[CU_WIS_W-1:0]].rs1_found_sop) begin
+                                    `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 is ready\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                                end else begin
+                                    `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 to be read from RF - no sop found\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                                end
+                            end
+                        end
+                        if (writeback_if[i].data.sop) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 found sop\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                        end
+                    end
+                    if (collector_units[j[CU_WIS_W-1:0]].allocated && collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==0 && (collector_units[j[CU_WIS_W-1:0]].rs2_source == writeback_if[i].data.cu_id) && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
+                        if ((j[CU_WIS_W-1:0] != cu_to_check_rat) || check_rat==0) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs2 data = 0x%h from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
+                            if (writeback_if[i].data.eop) begin
+                                if (writeback_if[i].data.sop || collector_units[j[CU_WIS_W-1:0]].rs2_found_sop) begin
+                                    `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 is ready\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                                end else begin
+                                    `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 to be read from RF - no sop found\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                                end
+                            end
+                        end
+                        if (writeback_if[i].data.sop) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 found sop\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                        end
+                    end 
+                    if (collector_units[j[CU_WIS_W-1:0]].allocated && collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==0 && (collector_units[j[CU_WIS_W-1:0]].rs3_source == writeback_if[i].data.cu_id) && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
+                        if ((j[CU_WIS_W-1:0] != cu_to_check_rat) || check_rat==0) begin
+                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs3 data = 0x%h from cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), writeback_if[i].data.data, writeback_if[i].data.cu_id, collector_units[writeback_if[i].data.cu_id].data.PC, wis_to_wid(collector_units[writeback_if[i].data.cu_id].data.wis, i[ISSUE_ISW_W-1:0])));
+                            if (writeback_if[i].data.eop) begin
+                                if (writeback_if[i].data.sop || collector_units[j[CU_WIS_W-1:0]].rs3_found_sop) begin
+                                    `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs3 is ready\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                                end else begin
+                                    `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs3 to be read from RF - no sop found\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                                end
+                            end
+                        end
+                    end
+                end
+                `TRACE(1, ("\n"));
+            end 
 
             if (deallocate) begin
-                $display("%d: deallocating cu %d (PC=0x%h)", $time, cu_to_deallocate, collector_units_n[cu_to_deallocate].data.PC);
-                $display("%d: empty cus : %b\n", $time, empty_cus);
+                `TRACE(1, ("%d: i=%d deallocating cu %d (PC=0x%h)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_deallocate, collector_units_n[cu_to_deallocate].data.PC));
+                `TRACE(1, ("%d: i=%d empty cus : %b\n\n", $time, i[ISSUE_ISW_W-1:0],  empty_cus));
             end 
+
+            if (dealloc_wb) begin
+                `TRACE(1, ("%d: i=%d deallocating cu %d (PC=0x%h) because of wb=0\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_dealloc_wb, collector_units_n[cu_to_dealloc_wb].data.PC));
+                `TRACE(1, ("%d: i=%d empty cus : %b\n\n", $time, i[ISSUE_ISW_W-1:0],  empty_cus));
+            end
 
             for (integer j = 0; j < CU_RATIO; j = j + 1) begin
                 if ((collector_units_n[j[CU_WIS_W-1:0]].dispatched == 0) && collector_units_n[j[CU_WIS_W-1:0]].rs1_ready && collector_units_n[j[CU_WIS_W-1:0]].rs2_ready && collector_units_n[j[CU_WIS_W-1:0]].rs3_ready) begin
-                    $display("%d: cu %d (PC=0x%h wis=%d) is ready to dispatch", $time, j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, collector_units_n[j[CU_WIS_W-1:0]].data.wis);
+                    //`TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) is ready to dispatch\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
                     if (collector_units[j[CU_WIS_W-1:0]].data.ex_type == `EX_LSU) begin 
-                        /* verilator lint_off UNSIGNED */
-                        for (logic[cu_lt_bits-1:0] k = 0; k < CU_RATIO; k++) begin
+                        for (integer k = 0; k < CU_RATIO; k++) begin
                             if (collector_units[k[CU_WIS_W-1:0]].dispatched==0 && collector_units[k[CU_WIS_W-1:0]].allocated && collector_units[k[CU_WIS_W-1:0]].data.wis == collector_units[j[CU_WIS_W-1:0]].data.wis && collector_units[k[CU_WIS_W-1:0]].data.ex_type == `EX_LSU && collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) begin
-                                $display("%d: LSU conflict: cu %d (PC=0x%h wis=%d) is not ready to dispatch because of cu %d (PC=0x%h wis=%d)", $time, j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, collector_units_n[j[CU_WIS_W-1:0]].data.wis, k[CU_WIS_W-1:0], collector_units_n[k[CU_WIS_W-1:0]].data.PC, collector_units_n[k[CU_WIS_W-1:0]].data.wis);
+                                //`TRACE(1, ("%d: i=%d LSU conflict: cu %d (PC=0x%h wid=%d) is not ready to dispatch because of cu %d (PC=0x%h wid=%d)\n\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), k[CU_WIS_W-1:0], collector_units_n[k[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[k[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
                             end
                         end 
-                        /* verilator lint_on UNSIGNED */
+                    end
+                    for (integer k = 0; k < CU_RATIO; k++) begin
+                        if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
+                            collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid && 
+                            ((collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs1 && collector_units[k[CU_WIS_W-1:0]].rs1_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs1_ready==0) ||
+                            (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs2 && collector_units[k[CU_WIS_W-1:0]].rs2_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs2_ready==0) ||
+                            (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs3 && collector_units[k[CU_WIS_W-1:0]].rs3_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs3_ready==0))) begin
+                                `TRACE(1, ("%d: i=%d RF conflict: cu %d (PC=0x%h wid=%d) is not ready to dispatch because of cu %d (PC=0x%h wid=%d)\n\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), k[CU_WIS_W-1:0], collector_units_n[k[CU_WIS_W-1:0]].data.PC, wis_to_wid(collector_units_n[k[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0])));
+                        end
                     end
                 end 
-                if (collector_units_n[j[CU_WIS_W-1:0]].dispatched && (collector_units_n[j[CU_WIS_W-1:0]].data.wb == 0)) begin
-                    $display("%d: deallocating cu %d (PC=0x%h wis=%d) - no writeback", $time, j[CU_WIS_W-1:0], collector_units_n[j[CU_WIS_W-1:0]].data.PC, collector_units_n[j[CU_WIS_W-1:0]].data.wis);
-                    $display("%d: empty cus : %b\n", $time, empty_cus);
+            end
+
+            if (ready_cus!=0) begin
+                `TRACE(1, ("%d: i=%d ready cus : %b\n", $time, i[ISSUE_ISW_W-1:0],  ready_cus));
+                `TRACE(1, ("%d: i=%d stg_valid_in=%d, stg_ready_in=%d, operands_if ready=%d operands_if valid=%d\n", $time, i[ISSUE_ISW_W-1:0],  stg_valid_in, stg_ready_in, operands_if[i].ready, operands_if[i].valid));
+                if (dispatch_cu_valid) begin
+                    `TRACE(1, ("%d: i=%d valid cu_to_dispatch=%d (PC=0x%h wid=%d) ex_type=", $time, i[ISSUE_ISW_W-1:0],  cu_to_dispatch, collector_units_n[cu_to_dispatch].data.PC, wis_to_wid(collector_units_n[cu_to_dispatch].data.wis, i[ISSUE_ISW_W-1:0])));
+                    trace_ex_type(1, collector_units_n[cu_to_dispatch].data.ex_type);
+                    `TRACE(1, ("\n\n"));
                 end
             end
            
@@ -712,18 +885,18 @@ module VX_operands import VX_gpu_pkg::*; #(
 
         // GPR banks
 
-        reg [RAM_ADDRW-1:0] gpr_rd_addr;       
+        reg [RAM_ADDRW-1:0] gpr_rd_addr;    
+        logic [RAM_ADDRW-1:0] gpr_rd_addr_n;
         wire [RAM_ADDRW-1:0] gpr_wr_addr;
         if (ISSUE_WIS != 0) begin
             assign gpr_wr_addr = {writeback_if[i].data.wis, writeback_if[i].data.rd};
-            always @(posedge clk) begin
-                gpr_rd_addr <= {gpr_rd_wis_n, gpr_rd_rid_n};
-            end
+            assign gpr_rd_addr_n = {gpr_rd_wis_n, gpr_rd_rid_n};
         end else begin
             assign gpr_wr_addr = writeback_if[i].data.rd;
-            always @(posedge clk) begin
-                gpr_rd_addr <= gpr_rd_rid_n;
-            end
+            assign gpr_rd_addr_n = gpr_rd_rid_n;
+        end
+        always @(posedge clk) begin
+            gpr_rd_addr <= gpr_rd_addr_n;
         end
         
     `ifdef GPR_RESET
