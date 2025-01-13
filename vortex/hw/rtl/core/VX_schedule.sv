@@ -328,7 +328,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
         schedule_data[schedule_wid][(`NUM_THREADS + `XLEN)-5:0]
     };
 
-`ifndef NDEBUG
+//`ifndef NDEBUG
     localparam GNW_WIDTH = `LOG2UP(`NUM_CLUSTERS * `NUM_CORES * `NUM_WARPS);
     reg [`UUID_WIDTH-1:0] instr_uuid;
     wire [GNW_WIDTH-1:0] g_wid = (GNW_WIDTH'(CORE_ID) << `NW_BITS) + GNW_WIDTH'(schedule_wid);
@@ -346,9 +346,9 @@ module VX_schedule import VX_gpu_pkg::*; #(
         instr_uuid = `UUID_WIDTH'(w_uuid);
     end
 `endif
-`else
-    wire [`UUID_WIDTH-1:0] instr_uuid = '0;
-`endif
+//`else
+//    wire [`UUID_WIDTH-1:0] instr_uuid = '0;
+//`endif
 
     VX_elastic_buffer #( 
         .DATAW (`NUM_THREADS + `XLEN + `NW_WIDTH)

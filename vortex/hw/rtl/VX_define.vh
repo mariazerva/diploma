@@ -49,7 +49,7 @@
 `ifndef NDEBUG
 `define UUID_WIDTH      44
 `else
-`define UUID_WIDTH      1
+`define UUID_WIDTH      44
 `endif
 
 ///////////////////////////////////////////////////////////////////////////////
