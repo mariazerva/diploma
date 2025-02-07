@@ -530,6 +530,10 @@ module VX_operands import VX_gpu_pkg::*; #(
                     read_cu_valid <= read_cu_valid_n;
                     cu_to_read_rf <= cu_to_read_rf_n;
                 end
+<<<<<<< HEAD
+=======
+                //read_cu_valid <= read_cu_valid_n;
+>>>>>>> 90f5c0ef0864da349e23875a96b1dc5263cc1c30
                 state <= state_n;
                 ibuffer_ready <= ibuffer_ready_n;
                 previous_uuid <= previous_uuid_n;
@@ -540,6 +544,10 @@ module VX_operands import VX_gpu_pkg::*; #(
             cache_reg   <= cache_reg_n;
             cache_tmask <= cache_tmask_n;
             cu_to_check_rat <= cu_to_check_rat_n;
+<<<<<<< HEAD
+=======
+            //cu_to_read_rf <= cu_to_read_rf_n;
+>>>>>>> 90f5c0ef0864da349e23875a96b1dc5263cc1c30
             cu_to_deallocate <= cu_to_deallocate_n;
             cu_to_dealloc_wb <= cu_to_dealloc_wb_n;
             cu_to_check_writeback <= cu_to_check_writeback_n;
