@@ -110,9 +110,6 @@ module VX_operands import VX_gpu_pkg::*; #(
         reg [CU_WIS_W-1:0] cu_to_read_rf;
         logic [CU_WIS_W-1:0] cu_to_read_rf_n, cu_to_read_rf_out;
 
-        reg rs1_ready, rs2_ready, rs3_ready;
-        logic rs1_ready_n, rs2_ready_n, rs3_ready_n;
-
         logic [CU_RATIO-1:0] ready_cus;
         logic [CU_WIS_W-1:0] cu_to_dispatch;
         logic dispatch_cu_valid;
@@ -145,15 +142,16 @@ module VX_operands import VX_gpu_pkg::*; #(
             cu_to_check_writeback_n = cu_to_check_writeback;
             cu_to_deallocate_n = 0;
             cu_to_dealloc_wb_n = 0;
+            cu_to_read_rf_n = cu_to_read_rf;
+            read_cu_valid_n = read_cu_valid;
+            gpr_rd_wis_n = gpr_rd_wis;
+            gpr_rd_rid_n = gpr_rd_rid;
             reg_alias_table_n = reg_alias_table;
             collector_units_n = collector_units;
             check_rat_n = check_rat;
             state_n = state;
             previous_uuid_n = previous_uuid;
             ibuffer_ready_n = ibuffer_ready;
-            rs1_ready_n = 0;
-            rs2_ready_n = 0;
-            rs3_ready_n = 0;
 
             // allocate cu, be ready to check rat and to accept new data from ibuffer
             if ((previous_uuid != ibuffer_if[i].data.uuid) && allocate_cu_valid && ibuffer_if[i].valid) begin
@@ -297,76 +295,67 @@ module VX_operands import VX_gpu_pkg::*; #(
                 operands_if[i].data.rs3_data = operands_if[i].data.rs3_data;
             end
 
-            // new cu to read rf
-            //if (state==0) begin
-            //    cu_to_read_rf_n = cu_to_read_rf_out;
-            //    read_cu_valid_n = read_cu_valid_out;
-            //    gpr_rd_wis_n = collector_units[cu_to_read_rf_out].data.wis;
-            //end else begin
-            //    cu_to_read_rf_n = cu_to_read_rf;
-            //    read_cu_valid_n = read_cu_valid;
-            //    gpr_rd_wis_n = gpr_rd_wis;
-            //end
-
-
-            if (read_cu_valid && collector_units[cu_to_read_rf].rs1_from_rf && ~(collector_units[cu_to_read_rf].rs1_ready)) begin
-                // to read rs1 from rf
-                gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs1;
-                state_n = 1;
-                cu_to_read_rf_n = cu_to_read_rf;
-                read_cu_valid_n = read_cu_valid;
-                gpr_rd_wis_n = gpr_rd_wis;
-            end else if (read_cu_valid && collector_units[cu_to_read_rf].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
-                // to read rs2 from rf
-                gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs2;
-                state_n = 2;
-                cu_to_read_rf_n = cu_to_read_rf;
-                read_cu_valid_n = read_cu_valid;
-                gpr_rd_wis_n = gpr_rd_wis;
-            end else if (read_cu_valid && collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
-                // to read rs3 from rf
-                gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs3;
-                state_n = 3;
-                cu_to_read_rf_n = cu_to_read_rf;
-                read_cu_valid_n = read_cu_valid;
-                gpr_rd_wis_n = gpr_rd_wis;
+            // read rf
+            if (read_cu_valid && state==0) begin
+                if (collector_units[cu_to_read_rf].rs1_from_rf && ~(collector_units[cu_to_read_rf].rs1_ready)) begin
+                    gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs1;
+                    state_n = 1;
+                end else if (collector_units[cu_to_read_rf].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
+                    gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs2;
+                    state_n = 2;
+                end else if (collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
+                    gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs3;
+                    state_n = 3;
+                end else begin
+                    state_n = 0;
+                    gpr_rd_rid_n = gpr_rd_rid;
+                    gpr_rd_wis_n = collector_units[cu_to_read_rf_out].data.wis;
+                end
+            end else if (state==1) begin
+                if (collector_units[cu_to_read_rf].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
+                    gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs2;
+                    state_n = 2;
+                end else if (collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
+                    gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs3;
+                    state_n = 3;
+                end else begin
+                    state_n = 0;
+                    gpr_rd_rid_n = gpr_rd_rid;
+                    gpr_rd_wis_n = collector_units[cu_to_read_rf_out].data.wis;
+                end
+            end else if (state==2) begin
+                if (collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
+                    gpr_rd_rid_n = collector_units[cu_to_read_rf].data.rs3;
+                    state_n = 3;
+                end else begin
+                    state_n = 0;
+                    gpr_rd_rid_n = gpr_rd_rid;
+                    gpr_rd_wis_n = collector_units[cu_to_read_rf_out].data.wis;
+                end
             end else begin
-                // a new cu to start reading rf
                 state_n = 0;
                 gpr_rd_rid_n = gpr_rd_rid;
-                cu_to_read_rf_n = cu_to_read_rf_out;
-                read_cu_valid_n = read_cu_valid_out;
                 gpr_rd_wis_n = collector_units[cu_to_read_rf_out].data.wis;
             end
-
 
             if (state == 1) begin
                 // read rs1 now and be rs1_ready on the next cycle
                 for (integer j = 0; j < `NUM_THREADS; j++) begin
                     collector_units_n[cu_to_read_rf].rs1_data[j] = gpr_rd_data[j];
                 end
-                rs1_ready_n = 1;
-                if (rs1_ready) begin 
-                    collector_units_n[cu_to_read_rf].rs1_ready = 1;
-                end
+                collector_units_n[cu_to_read_rf].rs1_ready = 1;
             end else if (state == 2) begin
                 // read rs2 now and be rs2_ready on the next cycle
                 for (integer j = 0; j < `NUM_THREADS; j++) begin
                     collector_units_n[cu_to_read_rf].rs2_data[j] = gpr_rd_data[j];
                 end
-                rs2_ready_n = 1;
-                if (rs2_ready) begin 
-                    collector_units_n[cu_to_read_rf].rs2_ready = 1;
-                end
+                collector_units_n[cu_to_read_rf].rs2_ready = 1;
             end else if (state == 3) begin
                 // read rs3 now and be rs3_ready on the next cycle
                 for (integer j = 0; j < `NUM_THREADS; j++) begin
                     collector_units_n[cu_to_read_rf].rs3_data[j] = gpr_rd_data[j];
                 end
-                rs3_ready_n = 1;
-                if (rs3_ready) begin 
-                    collector_units_n[cu_to_read_rf].rs3_ready = 1;
-                end
+                collector_units_n[cu_to_read_rf].rs3_ready = 1;
             end
 
 
@@ -508,9 +497,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                 state <= 2'b0;
                 previous_uuid <= -1;
                 read_cu_valid <= 1'b0;
-                rs1_ready <= 1'b0;
-                rs2_ready <= 1'b0;
-                rs3_ready <= 1'b0;
                 /* verilator lint_off UNSIGNED */
                 for (integer k = 0; k < CU_RATIO; k = k + 1) begin
                     collector_units[k[CU_WIS_W-1:0]].allocated <= 1'b0;
@@ -537,13 +523,16 @@ module VX_operands import VX_gpu_pkg::*; #(
                 check_rat <= check_rat_n;
                 deallocate <= deallocate_n;
                 dealloc_wb <= dealloc_wb_n;
-                read_cu_valid <= read_cu_valid_n;
+                if (state_n==0) begin
+                    read_cu_valid <= read_cu_valid_out;
+                    cu_to_read_rf <= cu_to_read_rf_out;
+                end else begin
+                    read_cu_valid <= read_cu_valid_n;
+                    cu_to_read_rf <= cu_to_read_rf_n;
+                end
                 state <= state_n;
                 ibuffer_ready <= ibuffer_ready_n;
                 previous_uuid <= previous_uuid_n;
-                rs1_ready <= rs1_ready_n;
-                rs2_ready <= rs2_ready_n;
-                rs3_ready <= rs3_ready_n;
             end
             gpr_rd_rid  <= gpr_rd_rid_n;
             gpr_rd_wis  <= gpr_rd_wis_n;        
@@ -551,7 +540,6 @@ module VX_operands import VX_gpu_pkg::*; #(
             cache_reg   <= cache_reg_n;
             cache_tmask <= cache_tmask_n;
             cu_to_check_rat <= cu_to_check_rat_n;
-            cu_to_read_rf <= cu_to_read_rf_n;
             cu_to_deallocate <= cu_to_deallocate_n;
             cu_to_dealloc_wb <= cu_to_dealloc_wb_n;
             cu_to_check_writeback <= cu_to_check_writeback_n;
@@ -654,16 +642,33 @@ module VX_operands import VX_gpu_pkg::*; #(
                 `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) ready to deallocate\n\n", $time, i[ISSUE_ISW_W-1:0], cu_to_check_writeback, {collector_units[cu_to_check_writeback].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_check_writeback].data.wis, i[ISSUE_ISW_W-1:0])));
             end
 
-            if (read_cu_valid) begin
-                `TRACE(1, ("%d: i=%d reading cus: %b\n", $time, i[ISSUE_ISW_W-1:0],  reading_cus));
+            // read rf
+            if (read_cu_valid && state==0) begin
                 if (collector_units[cu_to_read_rf].rs1_from_rf && ~(collector_units[cu_to_read_rf].rs1_ready)) begin
-                    `TRACE(1, ("%d: i=%d reading cu %d (PC=0x%h wid=%d) rs1 from RF, state = %d\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), state));
-                end else if (collector_units_n[cu_to_read_rf_n].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
-                    `TRACE(1, ("%d: i=%d reading cu %d (PC=0x%h wid=%d) rs2 from RF, state = %d\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), state));
-                end else if (collector_units_n[cu_to_read_rf_n].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
-                    `TRACE(1, ("%d: i=%d reading cu %d (PC=0x%h wid=%d) rs3 from RF, state = %d\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), state));
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to read rs1 from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end else if (collector_units[cu_to_read_rf].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to read rs2 from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end else if (collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to read rs3 from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end else begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to not read data from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
                 end
-                `TRACE(1, ("\n"));
+            end else if (state==1) begin
+                if (collector_units[cu_to_read_rf].rs2_from_rf && ~(collector_units[cu_to_read_rf].rs2_ready)) begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to read rs2 from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end else if (collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to read rs3 from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end else begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to not read more data from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end
+            end else if (state==2) begin
+                if (collector_units[cu_to_read_rf].rs3_from_rf && ~(collector_units[cu_to_read_rf].rs3_ready)) begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to read rs3 from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end else begin
+                    `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to not read more data from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
+                end
+            end else begin
+                `TRACE(1, ("%d: state=%d, state_n=%d, cu %d (PC=0x%h wid=%d) to not read data from RF\n", $time, state, state_n, cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0])));
             end
 
             if (state==1) begin
@@ -672,8 +677,8 @@ module VX_operands import VX_gpu_pkg::*; #(
                 `TRACE(1, ("%d: i=%d read data from RF for cu %d (PC=0x%h wid=%d) rs2 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h))\n\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), gpr_rd_data, collector_units[cu_to_read_rf].rs2_data, collector_units[cu_to_read_rf].data.rs2, gpr_rd_rid, gpr_rd_addr));
             end else if (state==3) begin
                 `TRACE(1, ("%d: i=%d read data from RF for cu %d (PC=0x%h wid=%d) rs3 : 0x%h, cu data : 0x%h (reading register=%d, gpr_rid_in= %d, gpr_rd_addr=0x%h))\n\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_read_rf, {collector_units[cu_to_read_rf].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_read_rf].data.wis, i[ISSUE_ISW_W-1:0]), gpr_rd_data, collector_units[cu_to_read_rf].rs3_data, collector_units[cu_to_read_rf].data.rs3, gpr_rd_rid, gpr_rd_addr));
-            end else begin
-                //`TRACE(1, ("%d: i=%d state = %d, cu_to_read_rf = %d, read_cu_valid = %d\n", $time, i[ISSUE_ISW_W-1:0],  state, cu_to_read_rf_n, read_cu_valid_n));
+            end else if (read_cu_valid) begin
+                `TRACE(1, ("%d: i=%d state = %d, cu_to_read_rf = %d, read_cu_valid = %d\n", $time, i[ISSUE_ISW_W-1:0],  state, cu_to_read_rf, read_cu_valid));
             end
 
             if (stg_valid_in) begin

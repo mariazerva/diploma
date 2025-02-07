@@ -177,8 +177,8 @@ module VX_alu_muldiv import VX_gpu_pkg::*; #(
         .clk(clk),
         .reset    (reset),
         .enable   (mul_ready_in),
-        .data_in  ({mul_valid_in, execute_if.data.uuid, execute_if.data.wid, execute_if.data.tmask, execute_if.data.PC, execute_if.data.rd, execute_if.data.wb, execute_if.data.pid, execute_if.data.sop, execute_if.data.eop, is_mulh_in, is_alu_w}),
-        .data_out ({mul_valid_out, mul_uuid_out, mul_wid_out, mul_tmask_out, mul_PC_out, mul_rd_out, mul_wb_out, mul_pid_out, mul_sop_out, mul_eop_out, is_mulh_out, is_mul_w_out})
+        .data_in  ({mul_valid_in, execute_if.data.uuid, execute_if.data.wid, execute_if.data.tmask, execute_if.data.PC, execute_if.data.rd, execute_if.data.wb, execute_if.data.pid, execute_if.data.sop, execute_if.data.eop, execute_if.data.cu_id, is_mulh_in, is_alu_w}),
+        .data_out ({mul_valid_out, mul_uuid_out, mul_wid_out, mul_tmask_out, mul_PC_out, mul_rd_out, mul_wb_out, mul_pid_out, mul_sop_out, mul_eop_out, mul_cu_id_out, is_mulh_out, is_mul_w_out})
     );
 
     assign mul_ready_in = mul_ready_out || ~mul_valid_out;
