@@ -49,11 +49,8 @@ REBUILD=2
 TEMPBUILD=0
 LOGFILE=run.log
 
-# default configurations <---------- Edited
 ISSUE_WIDTH=-1
-SCHEDULE_WIDTH=1
 
-# parse command line arguments: issue_width, schedule_width <---------- Edited
 for i in "$@"
 do
 case $i in
@@ -83,10 +80,6 @@ case $i in
         ;;
     --issue_width=*)
         ISSUE_WIDTH=${i#*=}
-        shift
-        ;;
-    --schedule_width=*)
-        SCHEDULE_WIDTH=${i#*=}
         shift
         ;;
     --l2cache)
@@ -178,7 +171,7 @@ else
 fi
 
 # set configurations <---------- Edited
-CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS -DISSUE_WIDTH=$ISSUE_WIDTH -DSCHEDULE_WIDTH=$SCHEDULE_WIDTH $L2 $L3 $PERF_FLAG $CONFIGS"
+CONFIGS="-DNUM_CLUSTERS=$CLUSTERS -DNUM_CORES=$CORES -DNUM_WARPS=$WARPS -DNUM_THREADS=$THREADS -DISSUE_WIDTH=$ISSUE_WIDTH $L2 $L3 $PERF_FLAG $CONFIGS"
 
 echo "CONFIGS=$CONFIGS"
 
