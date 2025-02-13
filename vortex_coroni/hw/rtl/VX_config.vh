@@ -95,11 +95,11 @@
 `endif
 
 `ifndef NUM_WARPS
-`define NUM_WARPS 16
+`define NUM_WARPS 4
 `endif
 
 `ifndef NUM_THREADS
-`define NUM_THREADS 32
+`define NUM_THREADS 16
 `endif
 
 `ifndef NUM_BARRIERS
@@ -261,7 +261,7 @@
 
 // Number of Collector units
 `ifndef NUM_CUS
-`define NUM_CUS `MIN(`NUM_WARPS * `ISSUE_WIDTH, 16)
+`define NUM_CUS 8 //`MIN(`NUM_WARPS * `ISSUE_WIDTH, 16)
 `endif
 
 // Number of ALU units

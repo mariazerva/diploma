@@ -330,7 +330,7 @@ module VX_schedule import VX_gpu_pkg::*; #(
         schedule_data[schedule_wid][(`NUM_THREADS + `PC_BITS)-1:(`NUM_THREADS + `PC_BITS)-4],
         schedule_data[schedule_wid][(`NUM_THREADS + `PC_BITS)-5:0]
     };
-
+/*
 `ifndef NDEBUG
     localparam GNW_WIDTH = `LOG2UP(`NUM_CLUSTERS * `NUM_CORES * `NUM_WARPS);
     reg [`UUID_WIDTH-1:0] instr_uuid;
@@ -352,6 +352,35 @@ module VX_schedule import VX_gpu_pkg::*; #(
 `else
     wire [`UUID_WIDTH-1:0] instr_uuid = '0;
 `endif
+*/
+    reg [`NUM_WARPS-1:0][`UUID_WIDTH-1:0] warp_uuid;
+    reg [`UUID_WIDTH-1:0] instr_uuid;
+
+    always @(posedge clk) begin
+        if (reset) begin
+            for (integer i = 0; i < `NUM_WARPS; ++i) begin
+                warp_uuid[i[`NW_WIDTH-1:0]] <= 1;
+            end
+        end
+        if (schedule_fire) begin
+            if (warp_uuid[schedule_wid] == `UUID_WIDTH'(-1)) begin
+                warp_uuid[schedule_wid] <= `UUID_WIDTH'(1);
+            end else begin
+                warp_uuid[schedule_wid] <= warp_uuid[schedule_wid] + `UUID_WIDTH'(1);
+            end
+            instr_uuid <= warp_uuid[schedule_wid];
+        end
+    end
+
+//    `ifdef DBG_TRACE_PIPELINE
+//    always @(posedge clk) begin
+//        if (schedule_fire) begin
+//            `TRACE(1, ("%d: core%0d-schedule: wid=%0d PC=%h uuid=%d\n", $time, CORE_ID, schedule_wid, {schedule_pc, 1'd0}, instr_uuid));
+//        end
+//    end
+//    `endif
+
+
 
     VX_elastic_buffer #(
         .DATAW (`NUM_THREADS + `PC_BITS + `NW_WIDTH)

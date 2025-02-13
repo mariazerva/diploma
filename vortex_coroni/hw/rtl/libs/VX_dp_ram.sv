@@ -24,10 +24,7 @@ module VX_dp_ram #(
     parameter INIT_ENABLE = 0,
     parameter INIT_FILE   = "",
     parameter [DATAW-1:0] INIT_VALUE = 0,
-    parameter ADDRW       = `LOG2UP(SIZE),
-    /* verilator lint_off UNUSED */
-    parameter REGFILE     = 0
-    /* verilator lint_on UNUSED */
+    parameter ADDRW       = `LOG2UP(SIZE)
 ) ( 
     input wire               clk,
     input wire               read,
@@ -53,17 +50,6 @@ module VX_dp_ram #(
     end
     
     `UNUSED_VAR (read)
-
-//`ifdef DBG_TRACE_PIPELINE
-//    always @(posedge clk) begin
-//        if (($time == -1 || $time==-1) && REGFILE == 1) begin
-//            $display("SIZE= %0d", SIZE);
-//            for (integer i = 0; i < SIZE; ++i) begin
-//                $display("ram[%0d] = %0h", i, ram[i]);
-//            end
-//        end 
-//    end
-//`endif
 
 `ifdef SYNTHESIS
     if (WRENW > 1) begin

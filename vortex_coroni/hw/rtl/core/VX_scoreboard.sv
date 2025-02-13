@@ -10,7 +10,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
+/*
 `include "VX_define.vh"
 
 module VX_scoreboard import VX_gpu_pkg::*; #(
@@ -333,3 +333,4 @@ module VX_scoreboard import VX_gpu_pkg::*; #(
     end
 
 endmodule
+*/

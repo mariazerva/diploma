@@ -121,7 +121,7 @@ module VX_dispatch import VX_gpu_pkg::*; #(
     for (genvar i=0; i < `ISSUE_WIDTH; ++i) begin
         always @(posedge clk) begin
             if (operands_if[i].valid && operands_if[i].ready) begin
-                `TRACE(1, ("%d: core%0d-issue: wid=%0d, PC=0x%0h, ex=", $time, CORE_ID, wis_to_wid(operands_if[i].data.wis, i), {operands_if[i].data.PC, 1'b0}));
+                `TRACE(1, ("%d: core%0d-issue: wid=%0d, PC=0x%0h, cu_id=%0d, ex=", $time, CORE_ID, wis_to_wid(operands_if[i].data.wis, i), {operands_if[i].data.PC, 1'b0}, operands_if[i].data.cu_id));
                 trace_ex_type(1, operands_if[i].data.ex_type);
                 `TRACE(1, (", op="));
                 trace_ex_op(1, operands_if[i].data.ex_type, operands_if[i].data.op_type, operands_if[i].data.op_args);

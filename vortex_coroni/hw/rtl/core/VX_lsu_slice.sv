@@ -62,13 +62,6 @@ module VX_lsu_slice import VX_gpu_pkg::*; #(
     wire [NUM_LANES-1:0][`XLEN-1:0] full_addr;
     for (genvar i = 0; i < NUM_LANES; ++i) begin
         assign full_addr[i] = execute_if.data.rs1_data[i] + `SEXT(`XLEN, execute_if.data.op_args.lsu.offset);
-//        always @(posedge clk) begin
-//            `ifdef DBG_TRACE_PIPELINE
-//            if ($time == 27847) begin
-//                `TRACE(1, ("%d: LSU: full_addr[%0d]=0x%0h + 0x%0h = 0x%0h, `XLEN=%0d, offset=%0h\n", $time, i, execute_if.data.rs1_data[i], `SEXT(`XLEN, execute_if.data.op_args.lsu.offset), full_addr[i], `XLEN, execute_if.data.op_args.lsu.offset));
-//            end
-//            `endif
-//        end
     end
 
     // address type calculation
@@ -483,8 +476,9 @@ module VX_lsu_slice import VX_gpu_pkg::*; #(
         .ready_out (commit_rsp_if.ready)
     );
 
-    reg [`NUM_CUS-1:0][`UUID_WIDTH-1:0] uuid_per_cu;
-    logic [`NUM_CUS-1:0][`UUID_WIDTH-1:0] uuid_per_cu_n;
+
+    reg [`NUM_CUS-1:0][`UUID_WIDTH+`NW_WIDTH-1:0] uuid_per_cu;
+    logic [`NUM_CUS-1:0][`UUID_WIDTH+`NW_WIDTH-1:0] uuid_per_cu_n;
     logic [CU_WIS_W-1:0] rsp_cu_id;
 
     always @(posedge clk) begin
@@ -497,81 +491,91 @@ module VX_lsu_slice import VX_gpu_pkg::*; #(
 
     always @(*) begin
         rsp_cu_id = '0;
+        uuid_per_cu_n = uuid_per_cu;
+
         if (execute_if.valid && execute_if.data.wb) begin
-            uuid_per_cu_n[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}] = execute_if.data.uuid;
+            uuid_per_cu_n[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}] = {execute_if.data.wid, execute_if.data.uuid};
         end else begin
             uuid_per_cu_n[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}] = uuid_per_cu[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}];
         end
 
-        for (integer j=0; j<`NUM_CUS; j=j+1) begin
-            if (mem_rsp_valid && rsp_uuid == uuid_per_cu[j]) begin
+        for (integer j=0; j<CU_RATIO; j++) begin
+            if (mem_rsp_valid && {rsp_wid, rsp_uuid} == uuid_per_cu[{wid_to_isw(rsp_wid), j[CU_WIS_W-1:0]}]) begin
                 rsp_cu_id = j[CU_WIS_W-1:0];
             end
         end
-        
+
+        if (commit_rsp_if.valid && commit_rsp_if.data.eop && commit_rsp_if.data.wb) begin
+           uuid_per_cu_n[{wid_to_isw(commit_rsp_if.data.wid), commit_rsp_if.data.cu_id}] = 0; 
+        end
+        if (commit_no_rsp_if.valid && commit_no_rsp_if.data.eop && commit_no_rsp_if.data.wb) begin
+           uuid_per_cu_n[{wid_to_isw(commit_no_rsp_if.data.wid), commit_no_rsp_if.data.cu_id}] = 0; 
+        end
+
     end
+
 /*
 `ifdef DBG_TRACE_PIPELINE
     always @(posedge clk) begin
-        if (mem_req_valid) begin
-            `TRACE(1, ("%d: lsu: mem_req tag=%0h, addr=0x%0h\n", $time, mem_req_tag, mem_req_addr));
-        end
-        if (mem_rsp_valid) begin
-            `TRACE(1, ("%d: lsu: mem_rsp tag=%0h, data=%0h\n", $time, mem_rsp_tag, mem_rsp_data));
+        if ($time>1359000) begin
+            if (execute_if.valid && execute_if.data.wb) begin
+                `TRACE(1, ("%d: execute_if uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, execute_if.data.uuid, execute_if.data.wid, {execute_if.data.PC, 1'b0}, execute_if.data.cu_id));
+            end
+            if (mem_rsp_valid) begin
+                `TRACE(1, ("%d: mem_rsp uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, rsp_uuid, rsp_wid, {rsp_pc, 1'b0}, rsp_cu_id));
+            end
+            if (no_rsp_buf_valid) begin
+                `TRACE(1, ("%d: no_rsp_buf uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, execute_if.data.uuid, execute_if.data.wid, {execute_if.data.PC, 1'b0}, execute_if.data.cu_id));
+            end
+            if (commit_rsp_if.valid) begin
+                `TRACE(1, ("%d: commit_rsp uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, commit_rsp_if.data.uuid, commit_rsp_if.data.wid, {commit_rsp_if.data.PC, 1'b0}, commit_rsp_if.data.cu_id));
+            end
+            if (commit_no_rsp_if.valid) begin
+                `TRACE(1, ("%d: commit_no_rsp uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, commit_no_rsp_if.data.uuid, commit_no_rsp_if.data.wid, {commit_no_rsp_if.data.PC, 1'b0}, commit_no_rsp_if.data.cu_id));
+            end
+            if (commit_if.valid) begin
+                `TRACE(1, ("%d: commit_if uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, commit_if.data.uuid, commit_if.data.wid, {commit_if.data.PC, 1'b0}, commit_if.data.cu_id));
+            end
         end
     end
 `endif
+
 */
-
-//`ifdef DBG_TRACE_PIPELINE
-//    always @(posedge clk) begin
-//        if (execute_if.valid && execute_if.data.wb) begin
-//            `TRACE(1, ("%d: execute_if uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, execute_if.data.uuid, execute_if.data.wid, {execute_if.data.PC, 1'b0}, execute_if.data.cu_id));
-//        end
-//        if (mem_rsp_valid) begin
-//            `TRACE(1, ("%d: mem_rsp uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, rsp_uuid, rsp_wid, {rsp_pc, 1'b0}, rsp_cu_id));
-//        end
-//        if (no_rsp_buf_valid) begin
-//            `TRACE(1, ("%d: no_rsp_buf uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, execute_if.data.uuid, execute_if.data.wid, {execute_if.data.PC, 1'b0}, execute_if.data.cu_id));
-//        end
-//        if (commit_rsp_if.valid) begin
-//            `TRACE(1, ("%d: commit_rsp uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, commit_rsp_if.data.uuid, commit_rsp_if.data.wid, {commit_rsp_if.data.PC, 1'b0}, commit_rsp_if.data.cu_id));
-//        end
-//        if (commit_no_rsp_if.valid) begin
-//            `TRACE(1, ("%d: commit_no_rsp uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, commit_no_rsp_if.data.uuid, commit_no_rsp_if.data.wid, {commit_no_rsp_if.data.PC, 1'b0}, commit_no_rsp_if.data.cu_id));
-//        end
-//        if (commit_if.valid) begin
-//            `TRACE(1, ("%d: commit_if uuid=%0d, wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, commit_if.data.uuid, commit_if.data.wid, {commit_if.data.PC, 1'b0}, commit_if.data.cu_id));
-//        end
-//    end
-//`endif
-
-
-//    `ifdef DBG_TRACE_PIPELINE
-//    always @(posedge clk) begin
-//        if (execute_if.valid && execute_if.data.wb) begin
-//            `TRACE(1, ("%d: core%0d-lsu: execute_if wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, CORE_ID, execute_if.data.wid, {execute_if.data.PC, 1'b0}, execute_if.data.cu_id));
-//        end
-//        if (mem_rsp_valid) begin
-//            `TRACE(1, ("%d: core%0d-lsu: mem_rsp wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, CORE_ID, rsp_wid, {rsp_pc, 1'b0}, rsp_cu_id));
-//            for (integer j=0; j<`NUM_CUS; j=j+1) begin
-//                `TRACE(1, ("%d: LSU: uuid_per_cu[%0d]=%0d\n", $time, j, uuid_per_cu[j]));
-//                if (rsp_uuid == uuid_per_cu[j]) begin
-//                    `TRACE(1, ("%d: LSU match rsp_uuid=%0d, uuid_per_cu=%0d, cu_id=%0d\n", $time, rsp_uuid, uuid_per_cu[j], j[CU_WIS_W-1:0]));
-//                end
-//            end
-//        end
-//        if (commit_rsp_if.valid) begin
-//            `TRACE(1, ("%d: core%0d-lsu: commit_rsp wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, CORE_ID, commit_rsp_if.data.wid, {commit_rsp_if.data.PC, 1'b0}, commit_rsp_if.data.cu_id));
-//        end
-//        if (commit_no_rsp_if.valid) begin
-//            `TRACE(1, ("%d: core%0d-lsu: commit_no_rsp wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, CORE_ID, commit_no_rsp_if.data.wid, {commit_no_rsp_if.data.PC, 1'b0}, commit_no_rsp_if.data.cu_id));
-//        end
-//        if (commit_if.valid) begin
-//            `TRACE(1, ("%d: core%0d-lsu: commit_if wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, CORE_ID, commit_if.data.wid, {commit_if.data.PC, 1'b0}, commit_if.data.cu_id));
-//        end
-//    end
-//    `endif
+    `ifdef DBG_TRACE_PIPELINE
+    always @(posedge clk) begin
+        //if ($time>600) begin
+        //if (execute_if.valid && execute_if.data.wb) begin
+        //    `TRACE(1, ("%d: core%0d-lsu: execute_if wid=%0d, PC=0x%0h, cu_id=%0d written uuid_per_cu[]=%0d\n", $time, CORE_ID, execute_if.data.wid, {execute_if.data.PC, 1'b0}, execute_if.data.cu_id, uuid_per_cu_n[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}]));
+        //end
+        //if (mem_rsp_valid) begin
+        //    `TRACE(1, ("%d: core%0d-lsu: mem_rsp wid=%0d, PC=0x%0h, cu_id=%0d, uuid=%d\n", $time, CORE_ID, rsp_wid, {rsp_pc, 1'b0}, rsp_cu_id, rsp_uuid));
+        //    for (integer j=0; j<CU_RATIO; j++) begin
+        //        `TRACE(1, ("%d: LSU: uuid_per_cu[%0d]=%0d\n", $time, j, uuid_per_cu[j]));
+        //        if ({rsp_wid, rsp_uuid} == uuid_per_cu[{wid_to_isw(rsp_wid), j[CU_WIS_W-1:0]}]) begin
+        //            `TRACE(1, ("%d: LSU match rsp_uuid=%0d, uuid_per_cu=%0d, cu_id=%0d\n", $time, rsp_uuid, uuid_per_cu[j], j[CU_WIS_W-1:0]));
+        //        end
+        //    end
+        //end
+        //if (commit_rsp_if.valid && commit_rsp_if.data.eop) begin
+        //    if (!(execute_if.valid && execute_if.data.wb && {wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}=={wid_to_isw(commit_rsp_if.data.wid), commit_rsp_if.data.cu_id})) begin
+        //    `TRACE(1, ("%d: core%0d-lsu: commit_rsp wid=%0d, PC=0x%0h, cu_id=%0d written uuid_per_cu[]=%0d\n", $time, CORE_ID, commit_rsp_if.data.wid, {commit_rsp_if.data.PC, 1'b0}, commit_rsp_if.data.cu_id, uuid_per_cu_n[{wid_to_isw(commit_rsp_if.data.wid), commit_rsp_if.data.cu_id}]));
+        //    end else begin //if ({wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}=={wid_to_isw(commit_rsp_if.data.wid), commit_rsp_if.data.cu_id}) begin
+        //    `TRACE(1, ("%d: found matching {wid_to_isw(execute_if.data.wid)=%d, execute_if.data.cu_id=%d}=={wid_to_isw(commit_rsp_if.data.wid)=%d, commit_rsp_if.data.cu_id=%d}\n", $time, wid_to_isw(execute_if.data.wid), execute_if.data.cu_id, wid_to_isw(commit_rsp_if.data.wid), commit_rsp_if.data.cu_id));
+        //    end
+        //end
+        //if (commit_no_rsp_if.valid && commit_no_rsp_if.data.eop) begin
+        //    if (!(execute_if.valid && execute_if.data.wb && {wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}=={wid_to_isw(commit_no_rsp_if.data.wid), commit_no_rsp_if.data.cu_id})) begin
+        //    `TRACE(1, ("%d: core%0d-lsu: commit_no_rsp wid=%0d, PC=0x%0h, cu_id=%0d written uuid_per_cu[]=%0d\n", $time, CORE_ID, commit_no_rsp_if.data.wid, {commit_no_rsp_if.data.PC, 1'b0}, commit_no_rsp_if.data.cu_id, uuid_per_cu_n[{wid_to_isw(commit_no_rsp_if.data.wid), commit_no_rsp_if.data.cu_id}]));
+        //    end else begin //if ({wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}=={wid_to_isw(commit_no_rsp_if.data.wid), commit_no_rsp_if.data.cu_id}) begin
+        //    `TRACE(1, ("%d: found matching {wid_to_isw(execute_if.data.wid)=%d, execute_if.data.cu_id=%d}=={wid_to_isw(commit_no_rsp_if.data.wid)=%d, commit_no_rsp_if.data.cu_id=%d}\n", $time, wid_to_isw(execute_if.data.wid), execute_if.data.cu_id, wid_to_isw(commit_no_rsp_if.data.wid), commit_no_rsp_if.data.cu_id));
+        //    end
+        //end
+        //if (commit_if.valid) begin
+        //    `TRACE(1, ("%d: core%0d-lsu: commit_if wid=%0d, PC=0x%0h, cu_id=%0d\n", $time, CORE_ID, commit_if.data.wid, {commit_if.data.PC, 1'b0}, commit_if.data.cu_id));
+        //end
+        //end
+    end
+    `endif
 
     VX_elastic_buffer #(
         .DATAW (CU_WIS_W + `UUID_WIDTH + `NW_WIDTH + NUM_LANES + `PC_BITS + PID_WIDTH + 1 + 1),

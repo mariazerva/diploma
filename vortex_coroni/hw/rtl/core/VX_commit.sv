@@ -180,13 +180,13 @@ module VX_commit import VX_gpu_pkg::*; #(
                 end 
             end
         end
-//        always @(posedge clk) begin
-//            if (writeback_if[i].valid) begin
-//                `TRACE(1, ("%d: core%0d-writeback: wid=%0d, PC=0x%0h, cu_id=%d, tmask=%b, rd=%0d, data=", $time, CORE_ID, writeback_if[i].data.wis, {writeback_if[i].data.PC, 1'b0}, writeback_if[i].data.cu_id, writeback_if[i].data.tmask, writeback_if[i].data.rd));
-//                `TRACE_ARRAY1D(1, "0x%0h", writeback_if[i].data.data, `NUM_THREADS);
-//                `TRACE(1, (" (#%0d)\n", writeback_if[i].data.uuid));
-//            end
-//        end
+        //always @(posedge clk) begin
+        //    if (writeback_if[i].valid) begin
+        //        `TRACE(1, ("%d: core%0d-writeback: wid=%0d, PC=0x%0h, cu_id=%d, tmask=%b, rd=%0d, data=", $time, CORE_ID, writeback_if[i].data.wis, {writeback_if[i].data.PC, 1'b0}, writeback_if[i].data.cu_id, writeback_if[i].data.tmask, writeback_if[i].data.rd));
+        //        `TRACE_ARRAY1D(1, "0x%0h", writeback_if[i].data.data, `NUM_THREADS);
+        //        `TRACE(1, (" (#%0d)\n", writeback_if[i].data.uuid));
+        //    end
+        //end
     end
 `endif
 

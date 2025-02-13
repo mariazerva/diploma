@@ -50,9 +50,9 @@
 `define PERF_CTR_BITS   44
 
 `ifndef NDEBUG
-`define UUID_WIDTH      44
+`define UUID_WIDTH      8
 `else
-`define UUID_WIDTH      1
+`define UUID_WIDTH      8
 `endif
 
 `define PC_BITS         (`XLEN-1)
