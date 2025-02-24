@@ -140,7 +140,8 @@ module VX_operands import VX_gpu_pkg::*; #(
         reg [`NUM_THREADS-1:0][`XLEN-1:0] writeback_buffer;
         logic [`NUM_THREADS-1:0][`XLEN-1:0] writeback_buffer_n;
 
-        logic uuid_overflow;
+        reg uuid_overflow;
+        logic uuid_overflow_n;
         /* verilator lint_on UNUSED */
         `ifdef PERF_ENABLE
             logic nocu_stall;
@@ -258,7 +259,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                     for (integer k = 0; k < `NUM_THREADS; k++) begin
                         if (writeback_if[i].data.tmask[k]) begin
                             writeback_buffer_n[k] = writeback_if[i].data.data[k];
-                        end else begin
+                        end else if (collector_units[writeback_if[i].data.cu_id].data.tmask[k]) begin
                             writeback_buffer_n[k] = collector_units[writeback_if[i].data.cu_id].rd_data[k];
                         end
                     end
@@ -286,8 +287,8 @@ module VX_operands import VX_gpu_pkg::*; #(
                     for (integer k = j + 1; k < CU_RATIO; k++) begin
                         if (collector_units[k[CU_WIS_W-1:0]].dispatched==0 && collector_units[k[CU_WIS_W-1:0]].allocated && collector_units[k[CU_WIS_W-1:0]].data.wis == collector_units[j[CU_WIS_W-1:0]].data.wis && 
                             collector_units[k[CU_WIS_W-1:0]].data.ex_type == `EX_LSU && collector_units[j[CU_WIS_W-1:0]].data.ex_type == `EX_LSU) begin
-                            if (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) && (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
-                            (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00)) begin
+                            if (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) )) begin //&& (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
+                            //(collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00)) begin
                                 ready_cus[j[CU_WIS_W-1:0]] = 0;
                             end else begin
                                 ready_cus[k[CU_WIS_W-1:0]] = 0;
@@ -295,7 +296,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                         end
                     end
                     // don't let an instruction with rd=x dispatch if a previous instruction is waiting to read x from RF
-                    for (integer k = j + 1; k < CU_RATIO; k++) begin
+                    for (integer k = 0; k < CU_RATIO; k++) begin
                         if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
                         ((collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs1 && collector_units[k[CU_WIS_W-1:0]].rs1_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs1_ready==0) ||
                         (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs2 && collector_units[k[CU_WIS_W-1:0]].rs2_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs2_ready==0) ||
@@ -304,13 +305,13 @@ module VX_operands import VX_gpu_pkg::*; #(
                         (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
                             ready_cus[j[CU_WIS_W-1:0]] = 0;
                         // same but for j instead of k and k instead of j
-                        end else if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
+                        /*end else if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
                         ((collector_units[k[CU_WIS_W-1:0]].data.rd == collector_units[j[CU_WIS_W-1:0]].data.rs1 && collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==1 && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) ||
                         (collector_units[k[CU_WIS_W-1:0]].data.rd == collector_units[j[CU_WIS_W-1:0]].data.rs2 && collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==1 && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) ||
                         (collector_units[k[CU_WIS_W-1:0]].data.rd == collector_units[j[CU_WIS_W-1:0]].data.rs3 && collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==1 && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0)) &&
-                        (((collector_units[j[CU_WIS_W-1:0]].data.uuid < collector_units[k[CU_WIS_W-1:0]].data.uuid) && (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
-                        (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
-                            ready_cus[k[CU_WIS_W-1:0]] = 0;
+                        (((collector_units[j[CU_WIS_W-1:0]].data.uuid < collector_units[k[CU_WIS_W-1:0]].data.uuid) ))) begin// && (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
+                        //(collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
+                            ready_cus[k[CU_WIS_W-1:0]] = 0;*/
                         end
                     end
                 end else begin
@@ -408,7 +409,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                     if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf==0 && 
                     (collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id].rd_valid)) begin
                         // catch valid data from rs1 source
-                        collector_units_n[cu_to_check_rat].rs1_data = collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id].rd_data;
+                        collector_units_n[cu_to_check_rat].rs1_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs1_ready = 1;
                         collector_units_n[cu_to_check_rat].rs1_from_rf = 0;
@@ -422,7 +423,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                     // same as rs1
                     if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf==0 && 
                     (collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id].rd_valid)) begin
-                        collector_units_n[cu_to_check_rat].rs2_data = collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id].rd_data;
+                        collector_units_n[cu_to_check_rat].rs2_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs2_ready = 1;
                         collector_units_n[cu_to_check_rat].rs2_from_rf = 0;
@@ -435,7 +436,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                     // same as rs1
                     if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf==0 && 
                     (collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id].rd_valid)) begin
-                        collector_units_n[cu_to_check_rat].rs3_data = collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id].rd_data;
+                        collector_units_n[cu_to_check_rat].rs3_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs3_ready = 1;
                         collector_units_n[cu_to_check_rat].rs3_from_rf = 0;
@@ -538,8 +539,18 @@ module VX_operands import VX_gpu_pkg::*; #(
                 previous_uuid <= -1;
                 previous_wis <= -1;
                 read_cu_valid <= 1'b0;
+                uuid_overflow <= 1'b0;
                 /* verilator lint_off UNSIGNED */
                 for (integer k = 0; k < CU_RATIO; k = k + 1) begin
+                    collector_units[k[CU_WIS_W-1:0]].data.PC <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].data.wis <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].data.uuid <= -1;
+                    collector_units[k[CU_WIS_W-1:0]].data.rs1 <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].data.rs2 <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].data.rs3 <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].data.rd <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].data.ex_type <= 0;
+                    collector_units[k[CU_WIS_W-1:0]].data.wb <= 0;
                     collector_units[k[CU_WIS_W-1:0]].allocated <= 1'b0;
                     collector_units[k[CU_WIS_W-1:0]].rs1_ready <= 1'b0;
                     collector_units[k[CU_WIS_W-1:0]].rs2_ready <= 1'b0;
@@ -572,6 +583,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                 check_rat <= check_rat_n;
                 deallocate <= deallocate_n;
                 dealloc_wb <= dealloc_wb_n;
+                uuid_overflow <= uuid_overflow_n;
                 if (state_n==0) begin
                     read_cu_valid <= read_cu_valid_out;
                     cu_to_read_rf <= cu_to_read_rf_out;
@@ -808,14 +820,14 @@ module VX_operands import VX_gpu_pkg::*; #(
         end
 
         always @(*) begin
-            uuid_overflow = 1'b0;
+            uuid_overflow_n = 1'b0;
         `ifdef PERF_ENABLE
             reorder = 0;
         `endif
 
             for (integer j = 0; j < CU_RATIO; j++) begin
                 if ($time>610 && ibuffer_if[i].valid && (collector_units[j[CU_WIS_W-1:0]].data.wis == ibuffer_if[i].data.wis) && (ibuffer_if[i].data.uuid==1) && (collector_units[j[CU_WIS_W-1:0]].data.uuid>ibuffer_if[i].data.uuid) && (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00)) begin
-                    uuid_overflow = 1'b1;
+                    uuid_overflow_n = 1'b1;
                     `ifdef DBG_TRACE_PIPELINE 
                         `TRACE(1, ("%d: uuid overflow detected: ibuffer (PC=0x%h wid=%d) uuid=%d, cu %d (PC=0x%h wid=%d) uuid=%d\n", $time, {ibuffer_if[i].data.PC, 1'd0}, wis_to_wid(ibuffer_if[i].data.wis, i[ISSUE_ISW_W-1:0]), ibuffer_if[i].data.uuid, j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[j[CU_WIS_W-1:0]].data.uuid));
                     `endif
@@ -834,7 +846,7 @@ module VX_operands import VX_gpu_pkg::*; #(
             end
         `endif
         end
-        //`RUNTIME_ASSERT(uuid_overflow==1, ("uuid overflow detected"));
+        //`RUNTIME_ASSERT((uuid_overflow==1 && $time>610), ("uuid overflow detected"));
 
 
         always @(posedge clk) begin
