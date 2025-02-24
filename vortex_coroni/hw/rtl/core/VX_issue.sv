@@ -68,6 +68,12 @@ module VX_issue #(
     ) operands (
         .clk            (clk),
         .reset          (operands_reset),
+    `ifdef PERF_ENABLE
+        .perf_nocu_stalls    (perf_issue_if.nocu_stalls),
+        .perf_rf_reads       (perf_issue_if.rf_reads),
+        .perf_rf_writes      (perf_issue_if.rf_writes),
+        .perf_reorders       (perf_issue_if.reorders),
+    `endif
         .writeback_if   (writeback_if),
         .ibuffer_if     (ibuffer_if),
         .operands_if    (operands_if)

@@ -17,10 +17,13 @@ interface VX_pipeline_perf_if ();
     wire [`PERF_CTR_BITS-1:0] sched_idles;
     wire [`PERF_CTR_BITS-1:0] sched_stalls;
     wire [`PERF_CTR_BITS-1:0] ibf_stalls;
-    wire [`PERF_CTR_BITS-1:0] scb_stalls;
-    wire [`PERF_CTR_BITS-1:0] units_uses [`NUM_EX_UNITS];
-    wire [`PERF_CTR_BITS-1:0] sfu_uses [`NUM_SFU_UNITS];
-
+    //wire [`PERF_CTR_BITS-1:0] scb_stalls;
+    //wire [`PERF_CTR_BITS-1:0] units_uses [`NUM_EX_UNITS];
+    //wire [`PERF_CTR_BITS-1:0] sfu_uses [`NUM_SFU_UNITS];
+    wire [`PERF_CTR_BITS-1:0] nocu_stalls;
+    wire [`PERF_CTR_BITS-1:0] rf_reads;
+    wire [`PERF_CTR_BITS-1:0] rf_writes;
+    wire [`PERF_CTR_BITS-1:0] reorders;
     wire [`PERF_CTR_BITS-1:0] ifetches;
     wire [`PERF_CTR_BITS-1:0] loads;
     wire [`PERF_CTR_BITS-1:0] stores;    
@@ -34,18 +37,26 @@ interface VX_pipeline_perf_if ();
 
     modport issue (
         output ibf_stalls,
-        output scb_stalls,
-        output units_uses,
-        output sfu_uses
+        output nocu_stalls,
+        output rf_reads,
+        output rf_writes,
+        output reorders
+        //output scb_stalls,
+        //output units_uses,
+        //output sfu_uses
     );
 
     modport slave (
         input sched_idles,
         input sched_stalls,
         input ibf_stalls,
-        input scb_stalls,
-        input units_uses,
-        input sfu_uses,
+        input nocu_stalls,
+        input rf_reads,
+        input rf_writes,
+        input reorders,
+        //input scb_stalls,
+        //input units_uses,
+        //input sfu_uses,
         input ifetches,
         input loads,
         input stores,

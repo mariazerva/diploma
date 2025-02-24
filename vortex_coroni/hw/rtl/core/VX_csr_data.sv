@@ -218,18 +218,22 @@ import VX_fpu_pkg::*;
                         `CSR_READ_64(`VX_CSR_MPM_SCHED_ID, read_data_ro_r, pipeline_perf_if.sched_idles);
                         `CSR_READ_64(`VX_CSR_MPM_SCHED_ST, read_data_ro_r, pipeline_perf_if.sched_stalls);
                         `CSR_READ_64(`VX_CSR_MPM_IBUF_ST, read_data_ro_r, pipeline_perf_if.ibf_stalls);
-                        `CSR_READ_64(`VX_CSR_MPM_SCRB_ST, read_data_ro_r, pipeline_perf_if.scb_stalls);
-                        `CSR_READ_64(`VX_CSR_MPM_SCRB_ALU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_ALU]);
+                        `CSR_READ_64(`VX_CSR_MPM_NCU_ST, read_data_ro_r, pipeline_perf_if.nocu_stalls);
+                        `CSR_READ_64(`VX_CSR_MPM_RF_RD, read_data_ro_r, pipeline_perf_if.rf_reads);
+                        `CSR_READ_64(`VX_CSR_MPM_RF_WR, read_data_ro_r, pipeline_perf_if.rf_writes);
+                        `CSR_READ_64(`VX_CSR_MPM_REORDER, read_data_ro_r, pipeline_perf_if.reorders);
+                        //`CSR_READ_64(`VX_CSR_MPM_SCRB_ST, read_data_ro_r, pipeline_perf_if.scb_stalls);
+                        //`CSR_READ_64(`VX_CSR_MPM_SCRB_ALU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_ALU]);
                     `ifdef EXT_F_ENABLE
-                        `CSR_READ_64(`VX_CSR_MPM_SCRB_FPU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_FPU]);
+                        //`CSR_READ_64(`VX_CSR_MPM_SCRB_FPU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_FPU]);
                     `else
-                        `VX_CSR_MPM_SCRB_FPU   : read_data_ro_r = '0;
-                        `VX_CSR_MPM_SCRB_FPU_H : read_data_ro_r = '0;
+                        //`VX_CSR_MPM_SCRB_FPU   : read_data_ro_r = '0;
+                        //`VX_CSR_MPM_SCRB_FPU_H : read_data_ro_r = '0;
                     `endif
-                        `CSR_READ_64(`VX_CSR_MPM_SCRB_LSU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_LSU]);
-                        `CSR_READ_64(`VX_CSR_MPM_SCRB_SFU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_SFU]);
-                        `CSR_READ_64(`VX_CSR_MPM_SCRB_CSRS, read_data_ro_r, pipeline_perf_if.sfu_uses[`SFU_CSRS]);
-                        `CSR_READ_64(`VX_CSR_MPM_SCRB_WCTL, read_data_ro_r, pipeline_perf_if.sfu_uses[`SFU_WCTL]);
+                        //`CSR_READ_64(`VX_CSR_MPM_SCRB_LSU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_LSU]);
+                        //`CSR_READ_64(`VX_CSR_MPM_SCRB_SFU, read_data_ro_r, pipeline_perf_if.units_uses[`EX_SFU]);
+                        //`CSR_READ_64(`VX_CSR_MPM_SCRB_CSRS, read_data_ro_r, pipeline_perf_if.sfu_uses[`SFU_CSRS]);
+                        //`CSR_READ_64(`VX_CSR_MPM_SCRB_WCTL, read_data_ro_r, pipeline_perf_if.sfu_uses[`SFU_WCTL]);
                         // PERF: memory
                         `CSR_READ_64(`VX_CSR_MPM_IFETCHES, read_data_ro_r, pipeline_perf_if.ifetches);
                         `CSR_READ_64(`VX_CSR_MPM_LOADS, read_data_ro_r, pipeline_perf_if.loads);
