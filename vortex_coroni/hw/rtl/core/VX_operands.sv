@@ -88,6 +88,8 @@ module VX_operands import VX_gpu_pkg::*; #(
         logic [`NR_BITS-1:0] gpr_rd_rid_n;
         reg [ISSUE_WIS_W-1:0] gpr_rd_wis;
         logic [ISSUE_WIS_W-1:0] gpr_rd_wis_n;
+        reg [`NUM_THREADS-1:0] gpr_wr_tmask;
+        logic [`NUM_THREADS-1:0] gpr_wr_tmask_n;
 
         reg [`NUM_THREADS-1:0][`XLEN-1:0] cache_data [ISSUE_RATIO-1:0];
         reg [`NUM_THREADS-1:0][`XLEN-1:0] cache_data_n [ISSUE_RATIO-1:0];
@@ -111,6 +113,9 @@ module VX_operands import VX_gpu_pkg::*; #(
         logic [CU_WIS_W-1:0] cu_to_check_rat_n;
         reg check_rat;
         logic check_rat_n;
+        wire [ISSUE_WIS_W-1:0] check_rat_wis;
+        wire [`NR_BITS-1:0] check_rat_rs1, check_rat_rs2, check_rat_rs3;
+        wire [`NR_BITS-1:0] check_rat_rd;
 
         logic [CU_RATIO-1:0] reading_cus;
         reg [1:0] state;
@@ -149,6 +154,15 @@ module VX_operands import VX_gpu_pkg::*; #(
             logic rf_write;
             logic reorder;
         `endif
+
+
+        assign check_rat_wis = collector_units[cu_to_check_rat].data.wis;
+        assign check_rat_rs1 = collector_units[cu_to_check_rat].data.rs1;
+        assign check_rat_rs2 = collector_units[cu_to_check_rat].data.rs2;
+        assign check_rat_rs3 = collector_units[cu_to_check_rat].data.rs3;
+        assign check_rat_rd = collector_units[cu_to_check_rat].data.rd;
+
+
         always @(*) begin
 
             // default values
@@ -174,6 +188,7 @@ module VX_operands import VX_gpu_pkg::*; #(
             previous_wis_n = previous_wis;
             ibuffer_ready_n = ibuffer_ready;
             writeback_buffer_n = writeback_buffer;
+            gpr_wr_tmask_n = gpr_wr_tmask;
 
             // allocate cu, be ready to check rat and to accept new data from ibuffer
             if (((previous_wis != ibuffer_if[i].data.wis) || (previous_uuid != ibuffer_if[i].data.uuid)) && allocate_cu_valid && ibuffer_if[i].valid) begin
@@ -263,6 +278,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                             writeback_buffer_n[k] = collector_units[writeback_if[i].data.cu_id].rd_data[k];
                         end
                     end
+                    gpr_wr_tmask_n = collector_units[writeback_if[i].data.cu_id].data.tmask;
                 end
             end
 
@@ -404,10 +420,10 @@ module VX_operands import VX_gpu_pkg::*; #(
 
             // check rat
             if (check_rat) begin  
-                if (collector_units[cu_to_check_rat].data.rs1 != 0) begin
+                if (check_rat_rs1 != 0) begin
                     // do i have to catch broadcasted data now?
-                    if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf==0 && 
-                    (collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs1].from_rf==0 && 
+                    (collector_units[reg_alias_table[check_rat_wis][check_rat_rs1].cu_id].rd_valid)) begin
                         // catch valid data from rs1 source
                         collector_units_n[cu_to_check_rat].rs1_data = writeback_buffer;
 
@@ -415,40 +431,40 @@ module VX_operands import VX_gpu_pkg::*; #(
                         collector_units_n[cu_to_check_rat].rs1_from_rf = 0;
                     end else begin
                         // not catching data from a cu now
-                        collector_units_n[cu_to_check_rat].rs1_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf;
+                        collector_units_n[cu_to_check_rat].rs1_from_rf = reg_alias_table[check_rat_wis][check_rat_rs1].from_rf;
                     end
-                    collector_units_n[cu_to_check_rat].rs1_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].cu_id;                   
+                    collector_units_n[cu_to_check_rat].rs1_source = reg_alias_table[check_rat_wis][check_rat_rs1].cu_id;                   
                 end
-                if (collector_units[cu_to_check_rat].data.rs2 != 0) begin
+                if (check_rat_rs2 != 0) begin
                     // same as rs1
-                    if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf==0 && 
-                    (collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs2].from_rf==0 && 
+                    (collector_units[reg_alias_table[check_rat_wis][check_rat_rs2].cu_id].rd_valid)) begin
                         collector_units_n[cu_to_check_rat].rs2_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs2_ready = 1;
                         collector_units_n[cu_to_check_rat].rs2_from_rf = 0;
                     end else begin
-                        collector_units_n[cu_to_check_rat].rs2_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf;
+                        collector_units_n[cu_to_check_rat].rs2_from_rf = reg_alias_table[check_rat_wis][check_rat_rs2].from_rf;
                     end
-                    collector_units_n[cu_to_check_rat].rs2_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].cu_id;
+                    collector_units_n[cu_to_check_rat].rs2_source = reg_alias_table[check_rat_wis][check_rat_rs2].cu_id;
                 end
-                if (collector_units[cu_to_check_rat].data.rs3 != 0) begin
+                if (check_rat_rs3 != 0) begin
                     // same as rs1
-                    if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf==0 && 
-                    (collector_units[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs3].from_rf==0 && 
+                    (collector_units[reg_alias_table[check_rat_wis][check_rat_rs3].cu_id].rd_valid)) begin
                         collector_units_n[cu_to_check_rat].rs3_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs3_ready = 1;
                         collector_units_n[cu_to_check_rat].rs3_from_rf = 0;
                     end else begin
-                        collector_units_n[cu_to_check_rat].rs3_from_rf = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf;
+                        collector_units_n[cu_to_check_rat].rs3_from_rf = reg_alias_table[check_rat_wis][check_rat_rs3].from_rf;
                     end
-                    collector_units_n[cu_to_check_rat].rs3_source = reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].cu_id;
+                    collector_units_n[cu_to_check_rat].rs3_source = reg_alias_table[check_rat_wis][check_rat_rs3].cu_id;
                 end
                 if (collector_units[cu_to_check_rat].data.wb) begin
                     // if a cu has to writeback, write its id to rd in rat
-                    reg_alias_table_n[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rd].from_rf = 1'b0;
-                    reg_alias_table_n[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rd].cu_id = cu_to_check_rat;
+                    reg_alias_table_n[check_rat_wis][check_rat_rd].from_rf = 1'b0;
+                    reg_alias_table_n[check_rat_wis][check_rat_rd].cu_id = cu_to_check_rat;
                 end
             end
 
@@ -612,6 +628,7 @@ module VX_operands import VX_gpu_pkg::*; #(
             cu_to_dealloc_wb <= cu_to_dealloc_wb_n;
             cu_to_check_writeback <= cu_to_check_writeback_n;
             writeback_buffer <= writeback_buffer_n;
+            gpr_wr_tmask <= gpr_wr_tmask_n;
         end
 
 
@@ -897,11 +914,11 @@ module VX_operands import VX_gpu_pkg::*; #(
 
         assign ibuffer_if[i].ready = ibuffer_ready;
         assign stg_valid_in = stg_ready_in && dispatch_cu_valid;
-        `ifdef PERF_ENABLE
+    `ifdef PERF_ENABLE
         assign nocu_stall = (allocate_cu_valid==0) && (check_rat_n==0);
         assign rf_read = (state!=0);
         assign rf_write = (writeback);
-        `endif
+    `endif
 
 
         VX_toggle_buffer #(
@@ -977,7 +994,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                 .read  (1'b1),
                 `UNUSED_PIN (wren),
             `ifdef GPR_RESET
-                .write (wr_enabled && writeback && (collector_units[cu_to_check_writeback].data.tmask[j])),
+                .write (wr_enabled && writeback && (gpr_wr_tmask[j])),
             `else
                 .write (writeback),
             `endif              
