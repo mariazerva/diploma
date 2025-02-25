@@ -312,7 +312,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                         end
                     end
                     // don't let an instruction with rd=x dispatch if a previous instruction is waiting to read x from RF
-                    for (integer k = 0; k < CU_RATIO; k++) begin
+                    for (integer k = 0; k < j; k++) begin
                         if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
                         ((collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs1 && collector_units[k[CU_WIS_W-1:0]].rs1_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs1_ready==0) ||
                         (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs2 && collector_units[k[CU_WIS_W-1:0]].rs2_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs2_ready==0) ||
@@ -320,14 +320,16 @@ module VX_operands import VX_gpu_pkg::*; #(
                         (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) && (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
                         (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
                             ready_cus[j[CU_WIS_W-1:0]] = 0;
-                        // same but for j instead of k and k instead of j
-                        /*end else if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
-                        ((collector_units[k[CU_WIS_W-1:0]].data.rd == collector_units[j[CU_WIS_W-1:0]].data.rs1 && collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==1 && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) ||
-                        (collector_units[k[CU_WIS_W-1:0]].data.rd == collector_units[j[CU_WIS_W-1:0]].data.rs2 && collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==1 && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) ||
-                        (collector_units[k[CU_WIS_W-1:0]].data.rd == collector_units[j[CU_WIS_W-1:0]].data.rs3 && collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==1 && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0)) &&
-                        (((collector_units[j[CU_WIS_W-1:0]].data.uuid < collector_units[k[CU_WIS_W-1:0]].data.uuid) ))) begin// && (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
-                        //(collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
-                            ready_cus[k[CU_WIS_W-1:0]] = 0;*/
+                        end
+                    end
+                    for (integer k = j + 1; k < CU_RATIO; k++) begin
+                        if (collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[k[CU_WIS_W-1:0]].data.wis && 
+                        ((collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs1 && collector_units[k[CU_WIS_W-1:0]].rs1_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs1_ready==0) ||
+                        (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs2 && collector_units[k[CU_WIS_W-1:0]].rs2_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs2_ready==0) ||
+                        (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs3 && collector_units[k[CU_WIS_W-1:0]].rs3_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs3_ready==0)) &&
+                        (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) && (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
+                        (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
+                            ready_cus[j[CU_WIS_W-1:0]] = 0;
                         end
                     end
                 end else begin
