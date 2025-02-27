@@ -24,6 +24,9 @@ interface VX_pipeline_perf_if ();
     wire [`PERF_CTR_BITS-1:0] rf_reads;
     wire [`PERF_CTR_BITS-1:0] rf_writes;
     wire [`PERF_CTR_BITS-1:0] reorders;
+    wire [`PERF_CTR_BITS-1:0] reorder_distances[15:1];
+    wire [`PERF_CTR_BITS-1:0] cu_util;
+    wire [64-1:0] cu_alloc_period;
     wire [`PERF_CTR_BITS-1:0] ifetches;
     wire [`PERF_CTR_BITS-1:0] loads;
     wire [`PERF_CTR_BITS-1:0] stores;    
@@ -40,7 +43,10 @@ interface VX_pipeline_perf_if ();
         output nocu_stalls,
         output rf_reads,
         output rf_writes,
-        output reorders
+        output reorders,
+        output reorder_distances,
+        output cu_util,
+        output cu_alloc_period
         //output scb_stalls,
         //output units_uses,
         //output sfu_uses
@@ -54,6 +60,9 @@ interface VX_pipeline_perf_if ();
         input rf_reads,
         input rf_writes,
         input reorders,
+        input reorder_distances,
+        input cu_util,
+        input cu_alloc_period,
         //input scb_stalls,
         //input units_uses,
         //input sfu_uses,

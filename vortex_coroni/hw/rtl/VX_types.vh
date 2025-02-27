@@ -91,6 +91,40 @@
 `define VX_CSR_MPM_RF_WR_H              12'hB88
 `define VX_CSR_MPM_REORDER              12'hB09
 `define VX_CSR_MPM_REORDER_H            12'hB89
+`define VX_CSR_MPM_CU_UTIL              12'hB0A
+`define VX_CSR_MPM_CU_UTIL_H            12'hB8A
+`define VX_CSR_MPM_CU_PERIOD            12'hB10
+`define VX_CSR_MPM_CU_PERIOD_H          12'hB90
+`define VX_CSR_MPM_CU_DISTANCE_1           12'hB11
+`define VX_CSR_MPM_CU_DISTANCE_1_H         12'hB91
+`define VX_CSR_MPM_CU_DISTANCE_2           12'hB12
+`define VX_CSR_MPM_CU_DISTANCE_2_H         12'hB92
+`define VX_CSR_MPM_CU_DISTANCE_3           12'hB13
+`define VX_CSR_MPM_CU_DISTANCE_3_H         12'hB93
+`define VX_CSR_MPM_CU_DISTANCE_4           12'hB14
+`define VX_CSR_MPM_CU_DISTANCE_4_H         12'hB94
+`define VX_CSR_MPM_CU_DISTANCE_5           12'hB15
+`define VX_CSR_MPM_CU_DISTANCE_5_H         12'hB95
+`define VX_CSR_MPM_CU_DISTANCE_6           12'hB16
+`define VX_CSR_MPM_CU_DISTANCE_6_H         12'hB96
+`define VX_CSR_MPM_CU_DISTANCE_7           12'hB17
+`define VX_CSR_MPM_CU_DISTANCE_7_H         12'hB97
+`define VX_CSR_MPM_CU_DISTANCE_8           12'hB18
+`define VX_CSR_MPM_CU_DISTANCE_8_H         12'hB98
+`define VX_CSR_MPM_CU_DISTANCE_9           12'hB19
+`define VX_CSR_MPM_CU_DISTANCE_9_H         12'hB99
+`define VX_CSR_MPM_CU_DISTANCE_10          12'hB1A
+`define VX_CSR_MPM_CU_DISTANCE_10_H        12'hB9A
+`define VX_CSR_MPM_CU_DISTANCE_11          12'hB1B
+`define VX_CSR_MPM_CU_DISTANCE_11_H        12'hB9B
+`define VX_CSR_MPM_CU_DISTANCE_12          12'hB1C
+`define VX_CSR_MPM_CU_DISTANCE_12_H        12'hB9C
+`define VX_CSR_MPM_CU_DISTANCE_13          12'hB1D
+`define VX_CSR_MPM_CU_DISTANCE_13_H        12'hB9D
+`define VX_CSR_MPM_CU_DISTANCE_14          12'hB1E
+`define VX_CSR_MPM_CU_DISTANCE_14_H        12'hB9E
+`define VX_CSR_MPM_CU_DISTANCE_15          12'hB1F
+`define VX_CSR_MPM_CU_DISTANCE_15_H        12'hB9F
 //`define VX_CSR_MPM_SCRB_ST              12'hB06
 //`define VX_CSR_MPM_SCRB_ST_H            12'hB86
 //`define VX_CSR_MPM_SCRB_ALU             12'hB07
@@ -99,8 +133,8 @@
 //`define VX_CSR_MPM_SCRB_FPU_H           12'hB88
 //`define VX_CSR_MPM_SCRB_LSU             12'hB09
 //`define VX_CSR_MPM_SCRB_LSU_H           12'hB89
-`define VX_CSR_MPM_SCRB_SFU             12'hB0A
-`define VX_CSR_MPM_SCRB_SFU_H           12'hB8A
+//`define VX_CSR_MPM_SCRB_SFU             12'hB0A
+//`define VX_CSR_MPM_SCRB_SFU_H           12'hB8A
 // PERF: memory
 `define VX_CSR_MPM_IFETCHES             12'hB0B
 `define VX_CSR_MPM_IFETCHES_H           12'hB8B
@@ -113,10 +147,10 @@
 `define VX_CSR_MPM_LOAD_LT              12'hB0F
 `define VX_CSR_MPM_LOAD_LT_H            12'hB8F
 // SFU: scoreboard
-`define VX_CSR_MPM_SCRB_WCTL            12'hB10
-`define VX_CSR_MPM_SCRB_WCTL_H          12'hB90
-`define VX_CSR_MPM_SCRB_CSRS            12'hB11
-`define VX_CSR_MPM_SCRB_CSRS_H          12'hB91
+//`define VX_CSR_MPM_SCRB_WCTL            12'hB10
+//`define VX_CSR_MPM_SCRB_WCTL_H          12'hB90
+//`define VX_CSR_MPM_SCRB_CSRS            12'hB11
+//`define VX_CSR_MPM_SCRB_CSRS_H          12'hB91
 
 // Machine Performance-monitoring memory counters (class 2) ///////////////////
 

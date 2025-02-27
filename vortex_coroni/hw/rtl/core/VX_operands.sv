@@ -25,6 +25,9 @@ module VX_operands import VX_gpu_pkg::*; #(
     output reg [`PERF_CTR_BITS-1:0] perf_rf_reads,
     output reg [`PERF_CTR_BITS-1:0] perf_rf_writes,
     output reg [`PERF_CTR_BITS-1:0] perf_reorders,
+    output reg [`PERF_CTR_BITS-1:0] perf_reorder_distances[15:1],
+    output reg [`PERF_CTR_BITS-1:0] perf_cu_util,
+    output reg [64-1:0] perf_cu_alloc_period,
 `endif
 
     VX_writeback_if.slave   writeback_if [`ISSUE_WIDTH],
@@ -153,6 +156,12 @@ module VX_operands import VX_gpu_pkg::*; #(
             logic rf_read;
             logic rf_write;
             logic reorder;
+            logic [3:0] reorder_distance;
+            logic [CU_WIS_W-1:0] cu_util;
+            reg [CU_RATIO-1:0][64-1:0] cu_alloc_time;
+            logic [CU_RATIO-1:0][64-1:0] cu_alloc_time_n;
+            reg [CU_RATIO-1:0][64-1:0] cu_alloc_period;
+            logic [CU_RATIO-1:0][64-1:0] cu_alloc_period_n;
         `endif
 
 
@@ -189,13 +198,21 @@ module VX_operands import VX_gpu_pkg::*; #(
             ibuffer_ready_n = ibuffer_ready;
             writeback_buffer_n = writeback_buffer;
             gpr_wr_tmask_n = gpr_wr_tmask;
+            uuid_overflow_n = uuid_overflow;
+            `ifdef PERF_ENABLE
+                cu_alloc_time_n = cu_alloc_time;
+                cu_alloc_period_n = cu_alloc_period;
+            `endif
 
             // allocate cu, be ready to check rat and to accept new data from ibuffer
-            if (((previous_wis != ibuffer_if[i].data.wis) || (previous_uuid != ibuffer_if[i].data.uuid)) && allocate_cu_valid && ibuffer_if[i].valid) begin
+            if (!uuid_overflow && ((previous_wis != ibuffer_if[i].data.wis) || (previous_uuid != ibuffer_if[i].data.uuid)) && allocate_cu_valid && ibuffer_if[i].valid) begin
                 collector_units_n[cu_to_allocate].allocated = 1;
                 collector_units_n[cu_to_allocate].data = ibuffer_if[i].data;
                 previous_uuid_n = ibuffer_if[i].data.uuid;
                 previous_wis_n = ibuffer_if[i].data.wis;
+                `ifdef PERF_ENABLE
+                    cu_alloc_time_n[cu_to_allocate] = $time;
+                `endif
 
                 // for unused rs1, rs2, rs3
                 if (ibuffer_if[i].data.rs1 == 0) begin
@@ -483,6 +500,9 @@ module VX_operands import VX_gpu_pkg::*; #(
                 collector_units_n[cu_to_deallocate].dispatched = 0;
                 collector_units_n[cu_to_deallocate].data.wb = 0;
                 collector_units_n[cu_to_deallocate].rd_valid = 0;
+                `ifdef PERF_ENABLE
+                    cu_alloc_period_n[cu_to_deallocate] = $time - cu_alloc_time[cu_to_deallocate];
+                `endif
             end 
 
             if (dealloc_wb) begin
@@ -497,6 +517,9 @@ module VX_operands import VX_gpu_pkg::*; #(
                 collector_units_n[cu_to_dealloc_wb].dispatched = 0;
                 collector_units_n[cu_to_dealloc_wb].data.wb = 0;
                 collector_units_n[cu_to_dealloc_wb].rd_valid = 0;
+                `ifdef PERF_ENABLE
+                    cu_alloc_period_n[cu_to_dealloc_wb] = $time - cu_alloc_time[cu_to_dealloc_wb];
+                `endif
             end
 
             if (CACHE_ENABLE != 0 && writeback_if[i].valid) begin
@@ -593,6 +616,15 @@ module VX_operands import VX_gpu_pkg::*; #(
                 perf_rf_reads <= 0;
                 perf_rf_writes <= 0;
                 perf_reorders <= 0;
+                perf_cu_alloc_period <= 0;
+                perf_cu_util <= 0;
+                for (integer k = 1; k < 16; k = k + 1) begin
+                    perf_reorder_distances[k] <= 0;
+                end
+                for (integer k = 0; k < CU_RATIO; k = k + 1) begin
+                    cu_alloc_time[k] <= 0;
+                    cu_alloc_period[k] <= 0;
+                end
             `endif
             end else begin
                 collector_units <= collector_units_n;
@@ -618,6 +650,24 @@ module VX_operands import VX_gpu_pkg::*; #(
                 perf_rf_reads <= perf_rf_reads + `PERF_CTR_BITS'(rf_read);
                 perf_rf_writes <= perf_rf_writes + `PERF_CTR_BITS'(rf_write);
                 perf_reorders <= perf_reorders + `PERF_CTR_BITS'(reorder);
+
+                if (reorder) begin
+                    perf_reorder_distances[reorder_distance] <= perf_reorder_distances[reorder_distance] + 1;
+                end
+
+                perf_cu_util <= perf_cu_util + `PERF_CTR_BITS'(cu_util);
+
+                cu_alloc_period <= cu_alloc_period_n;
+                cu_alloc_time <= cu_alloc_time_n;
+                if (deallocate && dealloc_wb) begin
+                    perf_cu_alloc_period <= perf_cu_alloc_period + 64'(cu_alloc_period_n[cu_to_deallocate]) + 64'(cu_alloc_period_n[cu_to_dealloc_wb]);
+                end else if (deallocate) begin
+                    perf_cu_alloc_period <= perf_cu_alloc_period + 64'(cu_alloc_period_n[cu_to_deallocate]);
+                end else if (dealloc_wb) begin
+                    perf_cu_alloc_period <= perf_cu_alloc_period + 64'(cu_alloc_period_n[cu_to_dealloc_wb]);
+                end else begin
+                    perf_cu_alloc_period <= perf_cu_alloc_period;
+                end
             `endif
             end
             gpr_rd_rid  <= gpr_rd_rid_n;
@@ -842,10 +892,12 @@ module VX_operands import VX_gpu_pkg::*; #(
             uuid_overflow_n = 1'b0;
         `ifdef PERF_ENABLE
             reorder = 0;
+            reorder_distance = 0;
+            cu_util = 0;
         `endif
 
             for (integer j = 0; j < CU_RATIO; j++) begin
-                if ($time>610 && ibuffer_if[i].valid && (collector_units[j[CU_WIS_W-1:0]].data.wis == ibuffer_if[i].data.wis) && (ibuffer_if[i].data.uuid==1) && (collector_units[j[CU_WIS_W-1:0]].data.uuid>ibuffer_if[i].data.uuid) && (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00)) begin
+                if ($time>610 && ibuffer_if[i].valid && (collector_units[j[CU_WIS_W-1:0]].data.wis == ibuffer_if[i].data.wis) && (ibuffer_if[i].data.uuid==`UUID_WIDTH'(-1)) && (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00)) begin
                     uuid_overflow_n = 1'b1;
                     `ifdef DBG_TRACE_PIPELINE 
                         `TRACE(1, ("%d: uuid overflow detected: ibuffer (PC=0x%h wid=%d) uuid=%d, cu %d (PC=0x%h wid=%d) uuid=%d\n", $time, {ibuffer_if[i].data.PC, 1'd0}, wis_to_wid(ibuffer_if[i].data.wis, i[ISSUE_ISW_W-1:0]), ibuffer_if[i].data.uuid, j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[j[CU_WIS_W-1:0]].data.uuid));
@@ -855,12 +907,29 @@ module VX_operands import VX_gpu_pkg::*; #(
 
         `ifdef PERF_ENABLE
             for (integer j = 0; j < CU_RATIO; j++) begin
-                if ($time>610 && stg_valid_in && j[CU_WIS_W-1:0] != cu_to_dispatch && collector_units[j[CU_WIS_W-1:0]].dispatched == 0 && 
+                if (collector_units[j[CU_WIS_W-1:0]].allocated && $time>610 && stg_valid_in && j[CU_WIS_W-1:0] != cu_to_dispatch && collector_units[j[CU_WIS_W-1:0]].dispatched == 0 && 
                 collector_units[j[CU_WIS_W-1:0]].data.wis == collector_units[cu_to_dispatch].data.wis && 
                 ((collector_units[j[CU_WIS_W-1:0]].data.uuid < collector_units[cu_to_dispatch].data.uuid && 
                 !(collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00 && collector_units[cu_to_dispatch].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11)) 
                 || (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[cu_to_dispatch].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
                     reorder = 1;
+                    `ifdef DBG_TRACE_PIPELINE
+                        `TRACE(1, ("%d: reorder detected: cu %d (PC=0x%h wid=%d) uuid=%d, cu to dispatch %d (PC=0x%h wid=%d) uuid=%d\n", $time, j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[j[CU_WIS_W-1:0]].data.uuid, cu_to_dispatch, {collector_units[cu_to_dispatch].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_dispatch].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[cu_to_dispatch].data.uuid));
+                    `endif
+                    if (collector_units[j[CU_WIS_W-1:0]].data.uuid < collector_units[cu_to_dispatch].data.uuid && 
+                    !(collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00 && collector_units[cu_to_dispatch].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11)) begin
+                        if ((5'(collector_units[cu_to_dispatch].data.uuid - collector_units[j[CU_WIS_W-1:0]].data.uuid) > 5'(reorder_distance)) && (5'(collector_units[cu_to_dispatch].data.uuid - collector_units[j[CU_WIS_W-1:0]].data.uuid) < 16)) begin
+                            reorder_distance = 4'(collector_units[cu_to_dispatch].data.uuid - collector_units[j[CU_WIS_W-1:0]].data.uuid);
+                        end
+                    end else if (collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[cu_to_dispatch].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00) begin
+                        if (5'(`UUID_WIDTH'(-1) - collector_units[j[CU_WIS_W-1:0]].data.uuid + collector_units[cu_to_dispatch].data.uuid) > 5'(reorder_distance) && 5'(`UUID_WIDTH'(-1) - collector_units[j[CU_WIS_W-1:0]].data.uuid + collector_units[cu_to_dispatch].data.uuid) < 16) begin
+                            reorder_distance = 4'(`UUID_WIDTH'(-1) - collector_units[j[CU_WIS_W-1:0]].data.uuid + collector_units[cu_to_dispatch].data.uuid);
+                        end
+                    end
+                end
+
+                if (collector_units[j[CU_WIS_W-1:0]].allocated == 1) begin
+                    cu_util = cu_util + 1;
                 end
             end
         `endif

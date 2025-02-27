@@ -73,6 +73,9 @@ module VX_issue #(
         .perf_rf_reads       (perf_issue_if.rf_reads),
         .perf_rf_writes      (perf_issue_if.rf_writes),
         .perf_reorders       (perf_issue_if.reorders),
+        .perf_reorder_distances(perf_issue_if.reorder_distances),
+        .perf_cu_util        (perf_issue_if.cu_util),
+        .perf_cu_alloc_period(perf_issue_if.cu_alloc_period),
     `endif
         .writeback_if   (writeback_if),
         .ibuffer_if     (ibuffer_if),
