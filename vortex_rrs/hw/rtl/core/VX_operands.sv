@@ -63,21 +63,18 @@ module VX_operands import VX_gpu_pkg::*; #(
         logic [`NUM_THREADS-1:0][`XLEN-1:0] rs1_data;
         logic [`NUM_THREADS-1:0][`XLEN-1:0] rs2_data;
         logic [`NUM_THREADS-1:0][`XLEN-1:0] rs3_data;
-        logic [ID_BITS-1:0] rs1_source;
-        logic [ID_BITS-1:0] rs2_source;
-        logic [ID_BITS-1:0] rs3_source;
+        logic [RRS_WIS_W-1:0] rs1_source;
+        logic [RRS_WIS_W-1:0] rs2_source;
+        logic [RRS_WIS_W-1:0] rs3_source;
         logic   rs1_from_rf;
         logic   rs2_from_rf;
         logic   rs3_from_rf;
-        logic   rs1_from_cu;
-        logic   rs2_from_cu;
-        logic   rs3_from_cu;
+        logic [RRS_WIS_W-1:0] rrs_id;
     } collector_unit_t;
 
     typedef struct packed {
-        logic [ID_BITS-1:0] source_id;
+        logic [RRS_WIS_W-1:0] source_id;
         logic   from_rf;
-        logic   from_cu;
     } rat_data_t;
 
     typedef struct packed {
@@ -242,11 +239,36 @@ module VX_operands import VX_gpu_pkg::*; #(
             `endif
 
             // allocate cu, be ready to check rat and to accept new data from ibuffer
-            if (!uuid_overflow && ((previous_wis != ibuffer_if[i].data.wis) || (previous_uuid != ibuffer_if[i].data.uuid)) && allocate_cu_valid && ibuffer_if[i].valid) begin
+            if (!uuid_overflow && (allocate_rrs_valid || ibuffer_if[i].data.wb == 0) && ((previous_wis != ibuffer_if[i].data.wis) || (previous_uuid != ibuffer_if[i].data.uuid)) && allocate_cu_valid && ibuffer_if[i].valid) begin
                 collector_units_n[cu_to_allocate].allocated = 1;
-                collector_units_n[cu_to_allocate].data = ibuffer_if[i].data;
+
+                collector_units_n[cu_to_allocate].data.uuid = ibuffer_if[i].data.uuid;
+                collector_units_n[cu_to_allocate].data.wis = ibuffer_if[i].data.wis;
+                collector_units_n[cu_to_allocate].data.tmask = ibuffer_if[i].data.tmask;
+                collector_units_n[cu_to_allocate].data.PC = ibuffer_if[i].data.PC;
+                collector_units_n[cu_to_allocate].data.ex_type = ibuffer_if[i].data.ex_type;
+                collector_units_n[cu_to_allocate].data.op_type = ibuffer_if[i].data.op_type;
+                collector_units_n[cu_to_allocate].data.op_args = ibuffer_if[i].data.op_args;
+                collector_units_n[cu_to_allocate].data.wb = ibuffer_if[i].data.wb;
+                collector_units_n[cu_to_allocate].data.rd = ibuffer_if[i].data.rd;
+                collector_units_n[cu_to_allocate].data.rs1 = ibuffer_if[i].data.rs1;
+                collector_units_n[cu_to_allocate].data.rs2 = ibuffer_if[i].data.rs2;
+                collector_units_n[cu_to_allocate].data.rs3 = ibuffer_if[i].data.rs3;
+
                 previous_uuid_n = ibuffer_if[i].data.uuid;
                 previous_wis_n = ibuffer_if[i].data.wis;
+
+                // allocate rrs
+                if (ibuffer_if[i].data.wb == 1) begin
+                    rrs_n[rrs_to_allocate].allocated = 1;
+                    rrs_n[rrs_to_allocate].tmask = ibuffer_if[i].data.tmask;
+                    collector_units_n[cu_to_allocate].rrs_id = rrs_to_allocate;
+
+                `ifdef PERF_ENABLE
+                    rrs_alloc_time_n[rrs_to_allocate] = $time;
+                `endif
+                end
+                
             `ifdef PERF_ENABLE
                 cu_alloc_time_n[cu_to_allocate] = $time;
             `endif
@@ -300,17 +322,17 @@ module VX_operands import VX_gpu_pkg::*; #(
             // broadcast: get rd_data from rs_source
             for (integer j = 0; j < CU_RATIO; j++) begin
                 if (collector_units[j[CU_WIS_W-1:0]].allocated && !collector_units[j[CU_WIS_W-1:0]].dispatched && (j[CU_WIS_W-1:0] != cu_to_check_rat || check_rat==0)) begin
-                    if (collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==0 && collector_units[j[CU_WIS_W-1:0]].rs1_from_cu==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs1_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
+                    if (collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs1_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
                         // catch rs1 data
                         collector_units_n[j[CU_WIS_W-1:0]].rs1_data = writeback_buffer;
                         collector_units_n[j[CU_WIS_W-1:0]].rs1_ready = 1;
                     end
-                    if (collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==0 && collector_units[j[CU_WIS_W-1:0]].rs2_from_cu==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs2_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
+                    if (collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs2_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
                         // catch rs2 data
                         collector_units_n[j[CU_WIS_W-1:0]].rs2_data = writeback_buffer;
                         collector_units_n[j[CU_WIS_W-1:0]].rs2_ready = 1;
                     end
-                    if (collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==0 && collector_units[j[CU_WIS_W-1:0]].rs3_from_cu==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs3_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
+                    if (collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs3_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
                         // catch rs3 data
                         collector_units_n[j[CU_WIS_W-1:0]].rs3_data = writeback_buffer;
                         collector_units_n[j[CU_WIS_W-1:0]].rs3_ready = 1;
@@ -345,8 +367,7 @@ module VX_operands import VX_gpu_pkg::*; #(
 
             // wait for cus to catch my data (only 1 cycle!) and then deallocate
             if (rrs[rrs_to_broadcast].rd_valid) begin
-                if (reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_rf == 0 && reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_cu == 0 &&
-                    reg_alias_table[wis_to_broadcast][rd_to_broadcast].source_id == rrs_to_broadcast) begin
+                if (reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_rf == 0 && reg_alias_table[wis_to_broadcast][rd_to_broadcast].source_id == rrs_to_broadcast) begin
                     writeback = 1;
                     reg_alias_table_n[wis_to_broadcast][rd_to_broadcast].from_rf = 1;
                 end
@@ -404,42 +425,12 @@ module VX_operands import VX_gpu_pkg::*; #(
                 operands_if[i].data.rs1_data = collector_units[cu_to_dispatch].rs1_data;
                 operands_if[i].data.rs2_data = collector_units[cu_to_dispatch].rs2_data;
                 operands_if[i].data.rs3_data = collector_units[cu_to_dispatch].rs3_data;
-                // allocate rrs for dispatching instruction
-                if (collector_units[cu_to_dispatch].data.wb == 1) begin
-                    rrs_n[rrs_to_allocate].allocated = 1;
-                    rrs_n[rrs_to_allocate].tmask = collector_units[cu_to_dispatch].data.tmask;
-                    operands_if[i].data.rrs_id = rrs_to_allocate;
-                    if (reg_alias_table[collector_units[cu_to_dispatch].data.wis][collector_units[cu_to_dispatch].data.rd].from_cu == 1 && reg_alias_table[collector_units[cu_to_dispatch].data.wis][collector_units[cu_to_dispatch].data.rd].source_id == ID_BITS'(cu_to_dispatch)) begin
-                        reg_alias_table_n[collector_units[cu_to_dispatch].data.wis][collector_units[cu_to_dispatch].data.rd].source_id = ID_BITS'(rrs_to_allocate);
-                        reg_alias_table_n[collector_units[cu_to_dispatch].data.wis][collector_units[cu_to_dispatch].data.rd].from_cu = 0;
-                    end
+                operands_if[i].data.rrs_id = collector_units[cu_to_dispatch].rrs_id;
 
-                `ifdef PERF_ENABLE
-                    rrs_alloc_time_n[rrs_to_allocate] = $time;
-                `endif
-                end
                 // deallocate dispatching cu
                 cu_to_deallocate_n = cu_to_dispatch;
                 deallocate_cu_n = 1;
                 collector_units_n[cu_to_dispatch].dispatched = 1;
-            
-                // on dispatch change cu_id with rrs_id in sources of other cus and in rat
-                for (integer j = 0; j < CU_RATIO; j++) begin
-                    if (collector_units[j[CU_WIS_W-1:0]].allocated) begin
-                        if (collector_units[j[CU_WIS_W-1:0]].rs1_from_cu && collector_units[j[CU_WIS_W-1:0]].rs1_source == ID_BITS'(cu_to_dispatch) && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
-                            collector_units_n[j[CU_WIS_W-1:0]].rs1_source = ID_BITS'(rrs_to_allocate);
-                            collector_units_n[j[CU_WIS_W-1:0]].rs1_from_cu = 0;
-                        end
-                        if (collector_units[j[CU_WIS_W-1:0]].rs2_from_cu && collector_units[j[CU_WIS_W-1:0]].rs2_source == ID_BITS'(cu_to_dispatch) && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
-                            collector_units_n[j[CU_WIS_W-1:0]].rs2_source = ID_BITS'(rrs_to_allocate);
-                            collector_units_n[j[CU_WIS_W-1:0]].rs2_from_cu = 0;
-                        end
-                        if (collector_units[j[CU_WIS_W-1:0]].rs3_from_cu && collector_units[j[CU_WIS_W-1:0]].rs3_source == ID_BITS'(cu_to_dispatch) && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
-                            collector_units_n[j[CU_WIS_W-1:0]].rs3_source = ID_BITS'(rrs_to_allocate);
-                            collector_units_n[j[CU_WIS_W-1:0]].rs3_from_cu = 0;
-                        end
-                    end
-                end
 
             end else begin
                 operands_if[i].data.rs1_data = operands_if[i].data.rs1_data;
@@ -516,82 +507,50 @@ module VX_operands import VX_gpu_pkg::*; #(
             if (check_rat) begin  
                 if (check_rat_rs1 != 0) begin
                     // do i have to catch broadcasted data now?
-                    if (reg_alias_table[check_rat_wis][check_rat_rs1].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs1].from_cu==0 && 
-                    (rrs[reg_alias_table[check_rat_wis][check_rat_rs1].source_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs1].from_rf==0 && (rrs[reg_alias_table[check_rat_wis][check_rat_rs1].source_id].rd_valid)) begin
                         collector_units_n[cu_to_check_rat].rs1_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs1_ready = 1;
                         collector_units_n[cu_to_check_rat].rs1_from_rf = 0;
-                        collector_units_n[cu_to_check_rat].rs1_from_cu = 0;
                         collector_units_n[cu_to_check_rat].rs1_source = reg_alias_table[check_rat_wis][check_rat_rs1].source_id;
-                    
-                    end else if (stg_valid_in && collector_units[cu_to_dispatch].data.wb && reg_alias_table[check_rat_wis][check_rat_rs1].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs1].from_cu==1 && reg_alias_table[check_rat_wis][check_rat_rs1].source_id == ID_BITS'(cu_to_dispatch)) begin
-                        collector_units_n[cu_to_check_rat].rs1_from_rf = 0;
-                        collector_units_n[cu_to_check_rat].rs1_from_cu = 0;
-                        collector_units_n[cu_to_check_rat].rs1_source = ID_BITS'(rrs_to_allocate);  
                                       
                     end else begin
                         collector_units_n[cu_to_check_rat].rs1_from_rf = reg_alias_table[check_rat_wis][check_rat_rs1].from_rf;
-                        collector_units_n[cu_to_check_rat].rs1_from_cu = reg_alias_table[check_rat_wis][check_rat_rs1].from_cu;
                         collector_units_n[cu_to_check_rat].rs1_source = reg_alias_table[check_rat_wis][check_rat_rs1].source_id;
                     end                   
                 end
                 if (check_rat_rs2 != 0) begin
                     // same
-                    if (reg_alias_table[check_rat_wis][check_rat_rs2].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs2].from_cu==0 &&
-                    (rrs[reg_alias_table[check_rat_wis][check_rat_rs2].source_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs2].from_rf==0 && (rrs[reg_alias_table[check_rat_wis][check_rat_rs2].source_id].rd_valid)) begin
                         collector_units_n[cu_to_check_rat].rs2_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs2_ready = 1;
                         collector_units_n[cu_to_check_rat].rs2_from_rf = 0;
-                        collector_units_n[cu_to_check_rat].rs2_from_cu = 0;
                         collector_units_n[cu_to_check_rat].rs2_source = reg_alias_table[check_rat_wis][check_rat_rs2].source_id;
-
-                    end else if (stg_valid_in && collector_units[cu_to_dispatch].data.wb && reg_alias_table[check_rat_wis][check_rat_rs2].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs2].from_cu==1 && reg_alias_table[check_rat_wis][check_rat_rs2].source_id == ID_BITS'(cu_to_dispatch)) begin
-                        collector_units_n[cu_to_check_rat].rs2_from_rf = 0;
-                        collector_units_n[cu_to_check_rat].rs2_from_cu = 0;
-                        collector_units_n[cu_to_check_rat].rs2_source = ID_BITS'(rrs_to_allocate);
 
                     end else begin
                         collector_units_n[cu_to_check_rat].rs2_from_rf = reg_alias_table[check_rat_wis][check_rat_rs2].from_rf;
-                        collector_units_n[cu_to_check_rat].rs2_from_cu = reg_alias_table[check_rat_wis][check_rat_rs2].from_cu;
                         collector_units_n[cu_to_check_rat].rs2_source = reg_alias_table[check_rat_wis][check_rat_rs2].source_id;
                     end
                 end
                 if (check_rat_rs3 != 0) begin
                     // same
-                    if (reg_alias_table[check_rat_wis][check_rat_rs3].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs3].from_cu==0 &&
-                    (rrs[reg_alias_table[check_rat_wis][check_rat_rs3].source_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs3].from_rf==0 && (rrs[reg_alias_table[check_rat_wis][check_rat_rs3].source_id].rd_valid)) begin
                         collector_units_n[cu_to_check_rat].rs3_data = writeback_buffer;
 
                         collector_units_n[cu_to_check_rat].rs3_ready = 1;
                         collector_units_n[cu_to_check_rat].rs3_from_rf = 0;
-                        collector_units_n[cu_to_check_rat].rs3_from_cu = 0;
                         collector_units_n[cu_to_check_rat].rs3_source = reg_alias_table[check_rat_wis][check_rat_rs3].source_id;
-
-                    end else if (stg_valid_in && collector_units[cu_to_dispatch].data.wb && reg_alias_table[check_rat_wis][check_rat_rs3].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs3].from_cu==1 && reg_alias_table[check_rat_wis][check_rat_rs3].source_id == ID_BITS'(cu_to_dispatch)) begin
-                        collector_units_n[cu_to_check_rat].rs3_from_rf = 0;
-                        collector_units_n[cu_to_check_rat].rs3_from_cu = 0;
-                        collector_units_n[cu_to_check_rat].rs3_source = ID_BITS'(rrs_to_allocate);
 
                     end else begin
                         collector_units_n[cu_to_check_rat].rs3_from_rf = reg_alias_table[check_rat_wis][check_rat_rs3].from_rf;
-                        collector_units_n[cu_to_check_rat].rs3_from_cu = reg_alias_table[check_rat_wis][check_rat_rs3].from_cu;
                         collector_units_n[cu_to_check_rat].rs3_source = reg_alias_table[check_rat_wis][check_rat_rs3].source_id;
                     end
                 end
+                // if a cu has to writeback, write its cu id to rd in rat
                 if (collector_units[cu_to_check_rat].data.wb) begin
                     reg_alias_table_n[check_rat_wis][check_rat_rd].from_rf = 0;
-                    //if this cu is dispatching, write the rrs id to rd in rat
-                    if (stg_valid_in && collector_units[cu_to_dispatch].data.wb && cu_to_check_rat == cu_to_dispatch) begin
-                        reg_alias_table_n[check_rat_wis][check_rat_rd].from_cu = 0;
-                        reg_alias_table_n[check_rat_wis][check_rat_rd].source_id = ID_BITS'(rrs_to_allocate);
-
-                    // if a cu has to writeback, write its cu id to rd in rat
-                    end else begin
-                        reg_alias_table_n[check_rat_wis][check_rat_rd].from_cu = 1;
-                        reg_alias_table_n[check_rat_wis][check_rat_rd].source_id = ID_BITS'(cu_to_check_rat);
-                    end
+                    reg_alias_table_n[check_rat_wis][check_rat_rd].source_id = collector_units[cu_to_check_rat].rrs_id;
                 end
             end
 
@@ -615,9 +574,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                 collector_units_n[cu_to_deallocate].rs1_from_rf = 0;
                 collector_units_n[cu_to_deallocate].rs2_from_rf = 0;
                 collector_units_n[cu_to_deallocate].rs3_from_rf = 0;
-                collector_units_n[cu_to_deallocate].rs1_from_cu = 0;
-                collector_units_n[cu_to_deallocate].rs2_from_cu = 0;
-                collector_units_n[cu_to_deallocate].rs3_from_cu = 0;
                 collector_units_n[cu_to_deallocate].data.wb = 0;
                 `ifdef PERF_ENABLE
                     cu_alloc_period_n[cu_to_deallocate] = $time - cu_alloc_time[cu_to_deallocate];
@@ -713,9 +669,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                     collector_units[k[CU_WIS_W-1:0]].rs1_from_rf <= 1'b0;
                     collector_units[k[CU_WIS_W-1:0]].rs2_from_rf <= 1'b0;
                     collector_units[k[CU_WIS_W-1:0]].rs3_from_rf <= 1'b0;
-                    collector_units[k[CU_WIS_W-1:0]].rs1_from_cu <= 1'b0;
-                    collector_units[k[CU_WIS_W-1:0]].rs2_from_cu <= 1'b0;
-                    collector_units[k[CU_WIS_W-1:0]].rs3_from_cu <= 1'b0;
                     collector_units[k[CU_WIS_W-1:0]].rs1_source <= 0;
                     collector_units[k[CU_WIS_W-1:0]].rs2_source <= 0;
                     collector_units[k[CU_WIS_W-1:0]].rs3_source <= 0;
@@ -727,7 +680,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                 for (integer k = 0; k < `UP(ISSUE_RATIO); k = k + 1) begin
                     for (integer l = 0; l < `NUM_REGS; l = l + 1) begin
                         reg_alias_table[k][l].from_rf <= 1;
-                        reg_alias_table[k][l].from_cu <= 0;
                     end
                 end
                 for (integer k = 0; k < `UP(RRS_RATIO); k = k + 1) begin
@@ -829,23 +781,26 @@ module VX_operands import VX_gpu_pkg::*; #(
             if ($time>600) begin
 
             if (((previous_wis != ibuffer_if[i].data.wis) || (previous_uuid != ibuffer_if[i].data.uuid)) && allocate_cu_valid && ibuffer_if[i].valid) begin
-                `TRACE(1, ("%d: i=%d allocating cu %d (PC=0x%h wid=%d) (#%d)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_allocate, {collector_units_n[cu_to_allocate].data.PC, 1'd0}, wis_to_wid(collector_units_n[cu_to_allocate].data.wis, i[ISSUE_ISW_W-1:0]), collector_units_n[cu_to_allocate].data.uuid));
             end
+            if (!uuid_overflow && (allocate_rrs_valid || ibuffer_if[i].data.wb == 0) && ((previous_wis != ibuffer_if[i].data.wis) || (previous_uuid != ibuffer_if[i].data.uuid)) && allocate_cu_valid && ibuffer_if[i].valid) begin
+                `TRACE(1, ("%d: i=%d allocating cu %d (PC=0x%h wid=%d) (#%d)\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_allocate, {collector_units_n[cu_to_allocate].data.PC, 1'd0}, wis_to_wid(collector_units_n[cu_to_allocate].data.wis, i[ISSUE_ISW_W-1:0]), collector_units_n[cu_to_allocate].data.uuid));
+                
+                // allocate rrs
+                if (ibuffer_if[i].data.wb == 1) begin
+                   `TRACE(1, ("%d: i=%d allocating rrs %d (PC=0x%h wid=%d) (#%d)\n", $time, i[ISSUE_ISW_W-1:0], rrs_to_allocate, {rrs_n[rrs_to_allocate].PC, 1'd0}, wis_to_wid(rrs_n[rrs_to_allocate].wis, i[ISSUE_ISW_W-1:0]), rrs_n[rrs_to_allocate].uuid));
+                end
+            end
+
 
             if (check_rat) begin  
                 `TRACE (1, ("%d: i=%d checking rat for cu %d (PC=0x%h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0], cu_to_check_rat, {collector_units[cu_to_check_rat].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_check_rat].data.wis, i[ISSUE_ISW_W-1:0])));
                 if (check_rat_rs1 != 0) begin
                     // do i have to catch broadcasted data now?
-                    if (reg_alias_table[check_rat_wis][check_rat_rs1].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs1].from_cu==0 && 
-                    (rrs[reg_alias_table[check_rat_wis][check_rat_rs1].source_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs1].from_rf==0 && (rrs[reg_alias_table[check_rat_wis][check_rat_rs1].source_id].rd_valid)) begin
                         `TRACE(1, ("%d: caught rs1 from rrs %d, data = 0x%h\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].source_id, rrs[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units_n[cu_to_check_rat].data.rs1].source_id].rd_data));                    
-                    end else if (stg_valid_in && collector_units[cu_to_dispatch].data.wb && reg_alias_table[check_rat_wis][check_rat_rs1].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs1].from_cu==1 && reg_alias_table[check_rat_wis][check_rat_rs1].source_id == ID_BITS'(cu_to_dispatch)) begin
-                        `TRACE(1, ("%d: rs1 not to be read from dispatching cu %d but from rrs %d\n", $time, cu_to_dispatch, rrs_to_allocate));
                     end else begin
                         if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_rf) begin
                             `TRACE(1, ("%d: rs1 to be read from RF\n", $time));
-                        end else if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].from_cu) begin
-                            `TRACE(1, ("%d: rs1 to be read from cu%d\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].source_id));
                         end else begin
                             `TRACE(1, ("%d: rs1 to be read from rrs %d\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs1].source_id));
                         end
@@ -853,16 +808,11 @@ module VX_operands import VX_gpu_pkg::*; #(
                 end
                 if (check_rat_rs2 != 0) begin
                     // same
-                    if (reg_alias_table[check_rat_wis][check_rat_rs2].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs2].from_cu==0 &&
-                    (rrs[reg_alias_table[check_rat_wis][check_rat_rs2].source_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs2].from_rf==0 && (rrs[reg_alias_table[check_rat_wis][check_rat_rs2].source_id].rd_valid)) begin
                         `TRACE(1, ("%d: caught rs2 from rrs %d, data = 0x%h\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].source_id, rrs[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units_n[cu_to_check_rat].data.rs2].source_id].rd_data));
-                    end else if (stg_valid_in && collector_units[cu_to_dispatch].data.wb && reg_alias_table[check_rat_wis][check_rat_rs2].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs2].from_cu==1 && reg_alias_table[check_rat_wis][check_rat_rs2].source_id == ID_BITS'(cu_to_dispatch)) begin
-                        `TRACE(1, ("%d: rs2 not to be read from dispatching cu %d but from rrs %d\n", $time, cu_to_dispatch, rrs_to_allocate));
                     end else begin
                         if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_rf) begin
                             `TRACE(1, ("%d: rs2 to be read from RF\n", $time));
-                        end else if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].from_cu) begin
-                            `TRACE(1, ("%d: rs2 to be read from cu%d\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].source_id));
                         end else begin
                             `TRACE(1, ("%d: rs2 to be read from rrs %d\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs2].source_id));
                         end
@@ -870,16 +820,11 @@ module VX_operands import VX_gpu_pkg::*; #(
                 end
                 if (check_rat_rs3 != 0) begin
                     // same
-                    if (reg_alias_table[check_rat_wis][check_rat_rs3].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs3].from_cu==0 &&
-                    (rrs[reg_alias_table[check_rat_wis][check_rat_rs3].source_id].rd_valid)) begin
+                    if (reg_alias_table[check_rat_wis][check_rat_rs3].from_rf==0 && (rrs[reg_alias_table[check_rat_wis][check_rat_rs3].source_id].rd_valid)) begin
                         `TRACE(1, ("%d: caught rs3 from rrs %d, data = 0x%h\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].source_id, rrs[reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units_n[cu_to_check_rat].data.rs3].source_id].rd_data));
-                    end else if (stg_valid_in && collector_units[cu_to_dispatch].data.wb && reg_alias_table[check_rat_wis][check_rat_rs3].from_rf==0 && reg_alias_table[check_rat_wis][check_rat_rs3].from_cu==1 && reg_alias_table[check_rat_wis][check_rat_rs3].source_id == ID_BITS'(cu_to_dispatch)) begin
-                        `TRACE(1, ("%d: rs3 not to be read from dispatching cu %d but from rrs %d\n", $time, cu_to_dispatch, rrs_to_allocate));
                     end else begin
                         if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_rf) begin
                             `TRACE(1, ("%d: rs3 to be read from RF\n", $time));
-                        end else if (reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].from_cu) begin
-                            `TRACE(1, ("%d: rs3 to be read from cu%d\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].source_id));
                         end else begin
                             `TRACE(1, ("%d: rs3 to be read from rrs %d\n", $time, reg_alias_table[collector_units[cu_to_check_rat].data.wis][collector_units[cu_to_check_rat].data.rs3].source_id));
                         end
@@ -887,7 +832,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                 end
                 if (collector_units[cu_to_check_rat].data.wb) begin
                     // if a cu has to writeback, write its id to rd in rat
-                    `TRACE(1, ("%d: wb to wis=%d reg=%d\n", $time, collector_units[cu_to_check_rat].data.wis, collector_units[cu_to_check_rat].data.rd));
+                    `TRACE(1, ("%d: wb to wis=%d reg=%d rrs %d\n", $time, collector_units[cu_to_check_rat].data.wis, collector_units[cu_to_check_rat].data.rd, collector_units[cu_to_check_rat].rrs_id));
                 end
                 `TRACE(1, ("\n"));
             end
@@ -895,13 +840,13 @@ module VX_operands import VX_gpu_pkg::*; #(
             // broadcast: get rd_data from rs_source
             for (integer j = 0; j < CU_RATIO; j++) begin
                 if (collector_units[j[CU_WIS_W-1:0]].allocated && !collector_units[j[CU_WIS_W-1:0]].dispatched && (j[CU_WIS_W-1:0] != cu_to_check_rat || check_rat==0)) begin
-                    if (collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==0 && collector_units[j[CU_WIS_W-1:0]].rs1_from_cu==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs1_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
+                    if (collector_units[j[CU_WIS_W-1:0]].rs1_from_rf==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs1_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
                         `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs1 from rrs %d, data = 0x%h\n\n", $time, i[ISSUE_ISW_W-1:0], j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[j[CU_WIS_W-1:0]].rs1_source, rrs[collector_units[j[CU_WIS_W-1:0]].rs1_source].rd_data));
                     end
-                    if (collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==0 && collector_units[j[CU_WIS_W-1:0]].rs2_from_cu==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs2_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
+                    if (collector_units[j[CU_WIS_W-1:0]].rs2_from_rf==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs2_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
                         `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs2 from rrs %d, data = 0x%h\n\n", $time, i[ISSUE_ISW_W-1:0], j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[j[CU_WIS_W-1:0]].rs2_source, rrs[collector_units[j[CU_WIS_W-1:0]].rs2_source].rd_data));
                     end
-                    if (collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==0 && collector_units[j[CU_WIS_W-1:0]].rs3_from_cu==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs3_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
+                    if (collector_units[j[CU_WIS_W-1:0]].rs3_from_rf==0 && rrs[collector_units[j[CU_WIS_W-1:0]].rs3_source].rd_valid && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
                         `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) caught rs3 from rrs %d, data = 0x%h\n\n", $time, i[ISSUE_ISW_W-1:0], j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[j[CU_WIS_W-1:0]].rs3_source, rrs[collector_units[j[CU_WIS_W-1:0]].rs3_source].rd_data));
                     end
                 end       
@@ -912,19 +857,18 @@ module VX_operands import VX_gpu_pkg::*; #(
                 `TRACE(1,("%d: i=%d writeback valid (PC=0x%0h wid=%d)\n", $time, i[ISSUE_ISW_W-1:0],  {writeback_if[i].data.PC, 1'd0}, wis_to_wid(writeback_if[i].data.wis, i[ISSUE_ISW_W-1:0])));
                 if (writeback_if[i].data.eop) begin
                     `TRACE(1, ("%d: rrs %d writeback found eop, data: 0x%h\n", $time, writeback_if[i].data.rrs_id, writeback_if[i].data.data));
-                    //if (reg_alias_table[collector_units[writeback_if[i].data.rrs_id].data.wis][collector_units[writeback_if[i].data.rrs_id].data.rd].source_id == writeback_if[i].data.rrs_id) begin
-                    //    `TRACE(1, ("%d: wb to rf rd=0x%h, data = 0x%h\n", $time, collector_units[writeback_if[i].data.rrs_id].data.rd, writeback_if[i].data.data));
-                    //end else begin
-                    //    `TRACE(1, ("%d: no wb to rf, rat source_id=%d\n", $time, reg_alias_table_n[collector_units[writeback_if[i].data.rrs_id].data.wis][collector_units[writeback_if[i].data.rrs_id].data.rd].source_id)); 
-                    //end
+                    if (reg_alias_table[collector_units[writeback_if[i].data.rrs_id].data.wis][collector_units[writeback_if[i].data.rrs_id].data.rd].source_id == writeback_if[i].data.rrs_id) begin
+                        `TRACE(1, ("%d: wb to rf rd=0x%h, data = 0x%h\n", $time, collector_units[writeback_if[i].data.rrs_id].data.rd, writeback_if[i].data.data));
+                    end else begin
+                        `TRACE(1, ("%d: no wb to rf, rat source_id=%d\n", $time, reg_alias_table_n[collector_units[writeback_if[i].data.rrs_id].data.wis][collector_units[writeback_if[i].data.rrs_id].data.rd].source_id)); 
+                    end
                 end
                 `TRACE(1, ("\n"));
             end
 
             if (rrs[rrs_to_broadcast].rd_valid) begin
                 `TRACE(1, ("%d: i=%d rrs %d valid data = 0x%h\n", $time, i[ISSUE_ISW_W-1:0], rrs_to_broadcast, rrs[rrs_to_broadcast].rd_data));
-                if (reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_rf == 0 && reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_cu == 0 &&
-                    reg_alias_table[wis_to_broadcast][rd_to_broadcast].source_id == rrs_to_broadcast) begin
+                if (reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_rf == 0 && reg_alias_table[wis_to_broadcast][rd_to_broadcast].source_id == rrs_to_broadcast) begin
                     `TRACE(1, ("%d: i=%d rrs %d writeback to rf gpr_wr_addr=0x%h, tmask=%b, data=0x%h\n", $time, i[ISSUE_ISW_W-1:0], rrs_to_broadcast, gpr_wr_addr, rrs[rrs_to_broadcast].tmask, rrs[rrs_to_broadcast].rd_data));
                     `TRACE(1, ("%d: i=%d rrs %d writeback to rf, rat from_rf=%d, from_cu=%d, source_id=%d\n", $time, i[ISSUE_ISW_W-1:0], rrs_to_broadcast, reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_rf, reg_alias_table[wis_to_broadcast][rd_to_broadcast].from_cu, reg_alias_table[wis_to_broadcast][rd_to_broadcast].source_id));
                     `TRACE(1, ("%d: i=%d rrs %d wis=%d rd=%d\n", $time, i[ISSUE_ISW_W-1:0], rrs_to_broadcast, wis_to_broadcast, rd_to_broadcast));
@@ -982,29 +926,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                 trace_ex_type(1, collector_units[cu_to_dispatch].data.ex_type);
                 `TRACE(1, ("\n"));
                 `TRACE(1, ("%d: i=%d operands rs1 : 0x%h, rs2 : 0x%h, rs3 : 0x%h\n", $time, i[ISSUE_ISW_W-1:0],  operands_if[i].data.rs1_data, operands_if[i].data.rs2_data, operands_if[i].data.rs3_data));
-                // allocate rrs for dispatching instruction
-                if (collector_units[cu_to_dispatch].data.wb == 1) begin
-                    `TRACE(1, ("%d: i=%d allocating rrs %d for cu %d (PC=0x%h wid=%d) for wis=%d reg=%d\n", $time, i[ISSUE_ISW_W-1:0], rrs_to_allocate, cu_to_dispatch, {collector_units[cu_to_dispatch].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_dispatch].data.wis, i[ISSUE_ISW_W-1:0]), collector_units[cu_to_dispatch].data.wis, collector_units[cu_to_dispatch].data.rd));
-                    `TRACE(1, ("%d: i=%d rat source_id changed from cu %d to rrs %d\n\n", $time, i[ISSUE_ISW_W-1:0], cu_to_dispatch, rrs_to_allocate));
-                end else begin
-                    `TRACE(1, ("%d: i=%d no rrs allocated for cu %d (PC=0x%h wid=%d) because of wb=0\n", $time, i[ISSUE_ISW_W-1:0], cu_to_dispatch, {collector_units[cu_to_dispatch].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_dispatch].data.wis, i[ISSUE_ISW_W-1:0])));
-                end
-                `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) ready to deallocate\n", $time, i[ISSUE_ISW_W-1:0],  cu_to_deallocate, {collector_units[cu_to_deallocate].data.PC, 1'd0}, wis_to_wid(collector_units[cu_to_deallocate].data.wis, i[ISSUE_ISW_W-1:0])));
-            
-                // on dispatch change cu_id with rrs_id in sources of other cus and in rat
-                for (integer j = 0; j < CU_RATIO; j++) begin
-                    if (collector_units[j[CU_WIS_W-1:0]].allocated) begin
-                        if (collector_units[j[CU_WIS_W-1:0]].rs1_from_cu && collector_units[j[CU_WIS_W-1:0]].rs1_source == ID_BITS'(cu_to_dispatch) && collector_units[j[CU_WIS_W-1:0]].rs1_ready==0) begin
-                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs1 source changed from cu %d to rrs %d\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), cu_to_dispatch, rrs_to_allocate));
-                        end
-                        if (collector_units[j[CU_WIS_W-1:0]].rs2_from_cu && collector_units[j[CU_WIS_W-1:0]].rs2_source == ID_BITS'(cu_to_dispatch) && collector_units[j[CU_WIS_W-1:0]].rs2_ready==0) begin
-                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs2 source changed from cu %d to rrs %d\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), cu_to_dispatch, rrs_to_allocate));
-                        end
-                        if (collector_units[j[CU_WIS_W-1:0]].rs3_from_cu && collector_units[j[CU_WIS_W-1:0]].rs3_source == ID_BITS'(cu_to_dispatch) && collector_units[j[CU_WIS_W-1:0]].rs3_ready==0) begin
-                            `TRACE(1, ("%d: i=%d cu %d (PC=0x%h wid=%d) rs3 source changed from cu %d to rrs %d\n", $time, i[ISSUE_ISW_W-1:0],  j[CU_WIS_W-1:0], {collector_units[j[CU_WIS_W-1:0]].data.PC, 1'd0}, wis_to_wid(collector_units[j[CU_WIS_W-1:0]].data.wis, i[ISSUE_ISW_W-1:0]), cu_to_dispatch, rrs_to_allocate));
-                        end
-                    end
-                end
             end
             
             // deallocate rrs
