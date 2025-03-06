@@ -128,7 +128,8 @@ module VX_operands import VX_gpu_pkg::*; #(
         reg [CU_WIS_W-1:0] cu_to_read_rf;
         logic [CU_WIS_W-1:0] cu_to_read_rf_n, cu_to_read_rf_out;
 
-        logic [CU_RATIO-1:0] ready_cus;
+        reg     [CU_RATIO-1:0]      ready_cus;
+        logic   [CU_RATIO-1:0]      ready_cus_n;
         logic [CU_WIS_W-1:0] cu_to_dispatch;
         logic dispatch_cu_valid;
         logic stg_valid_in;
@@ -199,6 +200,7 @@ module VX_operands import VX_gpu_pkg::*; #(
             writeback_buffer_n = writeback_buffer;
             gpr_wr_tmask_n = gpr_wr_tmask;
             uuid_overflow_n = uuid_overflow;
+            ready_cus_n = ready_cus;
             `ifdef PERF_ENABLE
                 cu_alloc_time_n = cu_alloc_time;
                 cu_alloc_period_n = cu_alloc_period;
@@ -583,6 +585,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                 previous_wis <= -1;
                 read_cu_valid <= 1'b0;
                 uuid_overflow <= 1'b0;
+                ready_cus <= {CU_RATIO{1'b0}};
                 /* verilator lint_off UNSIGNED */
                 for (integer k = 0; k < CU_RATIO; k = k + 1) begin
                     collector_units[k[CU_WIS_W-1:0]].data.PC <= 0;
@@ -640,6 +643,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                 deallocate <= deallocate_n;
                 dealloc_wb <= dealloc_wb_n;
                 uuid_overflow <= uuid_overflow_n;
+                ready_cus <= ready_cus_n;
                 if (state_n==0) begin
                     read_cu_valid <= read_cu_valid_out;
                     cu_to_read_rf <= cu_to_read_rf_out;
