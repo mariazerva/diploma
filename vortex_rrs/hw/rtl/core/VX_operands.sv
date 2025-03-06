@@ -382,14 +382,14 @@ module VX_operands import VX_gpu_pkg::*; #(
                     ready_cus_n[j[CU_WIS_W-1:0]] = 1;
 
                     // no reordering for LSU instructions
-                    for (integer k = 0; k < CU_RATIO; k++) begin
+                    for (integer k = j+1; k < CU_RATIO; k++) begin
                         if (collector_units[k[CU_WIS_W-1:0]].allocated && !collector_units[k[CU_WIS_W-1:0]].dispatched && collector_units[k[CU_WIS_W-1:0]].data.wis == collector_units[j[CU_WIS_W-1:0]].data.wis && 
                             collector_units[k[CU_WIS_W-1:0]].data.ex_type == `EX_LSU && collector_units[j[CU_WIS_W-1:0]].data.ex_type == `EX_LSU) begin
                             if (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) && (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
                             (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00)) begin
                                 ready_cus_n[j[CU_WIS_W-1:0]] = 0;
-                            //end else begin
-                            //    ready_cus_n[k[CU_WIS_W-1:0]] = 0;
+                            end else begin
+                                ready_cus_n[k[CU_WIS_W-1:0]] = 0;
                             end
                         end
                     end

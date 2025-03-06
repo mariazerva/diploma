@@ -495,8 +495,6 @@ module VX_lsu_slice import VX_gpu_pkg::*; #(
 
         if (execute_if.valid && execute_if.data.wb) begin
             uuid_per_cu_n[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}] = {execute_if.data.wid, execute_if.data.uuid};
-        end else begin
-            uuid_per_cu_n[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}] = uuid_per_cu[{wid_to_isw(execute_if.data.wid), execute_if.data.cu_id}];
         end
 
         for (integer j=0; j<CU_RATIO; j++) begin
