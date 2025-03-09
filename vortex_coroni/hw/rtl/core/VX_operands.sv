@@ -128,8 +128,7 @@ module VX_operands import VX_gpu_pkg::*; #(
         reg [CU_WIS_W-1:0] cu_to_read_rf;
         logic [CU_WIS_W-1:0] cu_to_read_rf_n, cu_to_read_rf_out;
 
-        reg     [CU_RATIO-1:0]      ready_cus;
-        logic   [CU_RATIO-1:0]      ready_cus_n;
+        logic [CU_RATIO-1:0] ready_cus;
         logic [CU_WIS_W-1:0] cu_to_dispatch;
         logic dispatch_cu_valid;
         logic stg_valid_in;
@@ -200,7 +199,6 @@ module VX_operands import VX_gpu_pkg::*; #(
             writeback_buffer_n = writeback_buffer;
             gpr_wr_tmask_n = gpr_wr_tmask;
             uuid_overflow_n = uuid_overflow;
-            ready_cus_n = ready_cus;
             `ifdef PERF_ENABLE
                 cu_alloc_time_n = cu_alloc_time;
                 cu_alloc_period_n = cu_alloc_period;
@@ -317,18 +315,18 @@ module VX_operands import VX_gpu_pkg::*; #(
             for (integer j = 0; j < CU_RATIO; j++) begin
                 if (collector_units[j[CU_WIS_W-1:0]].allocated && (collector_units[j[CU_WIS_W-1:0]].dispatched == 0) && collector_units[j[CU_WIS_W-1:0]].rs1_ready && collector_units[j[CU_WIS_W-1:0]].rs2_ready && collector_units[j[CU_WIS_W-1:0]].rs3_ready) begin
                     // all rs are ready, cu can dispatch
-                    ready_cus_n[j[CU_WIS_W-1:0]] = 1;
+                    ready_cus[j[CU_WIS_W-1:0]] = 1;
 
                     // no reordering for LSU instructions
-                    for (integer k = j + 1; k < CU_RATIO; k++) begin
+                    for (integer k = 0; k < CU_RATIO; k++) begin
                         if (collector_units[k[CU_WIS_W-1:0]].dispatched==0 && collector_units[k[CU_WIS_W-1:0]].allocated && collector_units[k[CU_WIS_W-1:0]].data.wis == collector_units[j[CU_WIS_W-1:0]].data.wis && 
                             collector_units[k[CU_WIS_W-1:0]].data.ex_type == `EX_LSU && collector_units[j[CU_WIS_W-1:0]].data.ex_type == `EX_LSU) begin
                             if (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) && (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
                             (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00)) begin
-                                ready_cus_n[j[CU_WIS_W-1:0]] = 0;
-                            end else begin
-                                ready_cus_n[k[CU_WIS_W-1:0]] = 0;
-                            end
+                                ready_cus[j[CU_WIS_W-1:0]] = 0;
+                            end //else begin
+                                //ready_cus[k[CU_WIS_W-1:0]] = 0;
+                            //end
                         end
                     end
                     // don't let an instruction with rd=x dispatch if a previous instruction is waiting to read x from RF
@@ -339,7 +337,7 @@ module VX_operands import VX_gpu_pkg::*; #(
                         (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs3 && collector_units[k[CU_WIS_W-1:0]].rs3_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs3_ready==0)) &&
                         (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) && (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
                         (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
-                            ready_cus_n[j[CU_WIS_W-1:0]] = 0;
+                            ready_cus[j[CU_WIS_W-1:0]] = 0;
                         end
                     end
                     for (integer k = j + 1; k < CU_RATIO; k++) begin
@@ -349,11 +347,11 @@ module VX_operands import VX_gpu_pkg::*; #(
                         (collector_units[j[CU_WIS_W-1:0]].data.rd == collector_units[k[CU_WIS_W-1:0]].data.rs3 && collector_units[k[CU_WIS_W-1:0]].rs3_from_rf==1 && collector_units[k[CU_WIS_W-1:0]].rs3_ready==0)) &&
                         (((collector_units[k[CU_WIS_W-1:0]].data.uuid < collector_units[j[CU_WIS_W-1:0]].data.uuid) && (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b00 || collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]!=2'b11)) ||
                         (collector_units[k[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b11 && collector_units[j[CU_WIS_W-1:0]].data.uuid[`UUID_WIDTH-1:`UUID_WIDTH-2]==2'b00))) begin
-                            ready_cus_n[j[CU_WIS_W-1:0]] = 0;
+                            ready_cus[j[CU_WIS_W-1:0]] = 0;
                         end
                     end
                 end else begin
-                    ready_cus_n[j[CU_WIS_W-1:0]] = 0;
+                    ready_cus[j[CU_WIS_W-1:0]] = 0;
                 end
             end
 
@@ -553,6 +551,7 @@ module VX_operands import VX_gpu_pkg::*; #(
         );
 
         // for selecting a cu to read rf
+        
         VX_lzc #(
             .N       (CU_RATIO),
             .REVERSE (1)
@@ -561,6 +560,24 @@ module VX_operands import VX_gpu_pkg::*; #(
             .data_out  (cu_to_read_rf_out),
             .valid_out (read_cu_valid_out)
         );
+
+//        logic read_cu_ready;
+//        assign read_cu_ready = (state!=0 && state_n==0);
+//
+//        VX_generic_arbiter #(
+//            .NUM_REQS    (CU_RATIO),
+//            .LOCK_ENABLE (1),
+//            .TYPE        ("P")
+//        ) arbiter (
+//            .clk         (clk),
+//            .reset       (reset),
+//            .requests    (reading_cus),
+//            .grant_valid (read_cu_valid_out),
+//            .grant_index (cu_to_read_rf_out),
+//            `UNUSED_PIN (grant_onehot),
+//            .grant_unlock(read_cu_ready)
+//        );
+
 
         // for selecting a cu to dispatch
         VX_lzc #(
@@ -585,7 +602,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                 previous_wis <= -1;
                 read_cu_valid <= 1'b0;
                 uuid_overflow <= 1'b0;
-                ready_cus <= {CU_RATIO{1'b0}};
                 /* verilator lint_off UNSIGNED */
                 for (integer k = 0; k < CU_RATIO; k = k + 1) begin
                     collector_units[k[CU_WIS_W-1:0]].data.PC <= 0;
@@ -643,7 +659,6 @@ module VX_operands import VX_gpu_pkg::*; #(
                 deallocate <= deallocate_n;
                 dealloc_wb <= dealloc_wb_n;
                 uuid_overflow <= uuid_overflow_n;
-                ready_cus <= ready_cus_n;
                 if (state_n==0) begin
                     read_cu_valid <= read_cu_valid_out;
                     cu_to_read_rf <= cu_to_read_rf_out;
